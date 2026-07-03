@@ -1079,7 +1079,11 @@ function initializeClientWithRemoteAuth(store) {
                 '--disable-setuid-sandbox',
                 '--disable-blink-features=AutomationControlled',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--window-size=1280,800'
+                '--window-size=1280,800',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-zygote',
+                '--single-process'
             ]
         }
     });
@@ -1109,7 +1113,11 @@ function initLocalClient() {
                 '--disable-setuid-sandbox',
                 '--disable-blink-features=AutomationControlled',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--window-size=1280,800'
+                '--window-size=1280,800',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-zygote',
+                '--single-process'
             ]
         }
     });
