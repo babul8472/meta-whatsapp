@@ -1083,7 +1083,9 @@ function initializeClientWithRemoteAuth(store) {
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--no-zygote',
-                '--single-process'
+                '--single-process',
+                '--js-flags=--max-old-space-size=150',
+                '--disable-extensions'
             ]
         }
     });
@@ -1117,7 +1119,9 @@ function initLocalClient() {
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--no-zygote',
-                '--single-process'
+                '--single-process',
+                '--js-flags=--max-old-space-size=150',
+                '--disable-extensions'
             ]
         }
     });
