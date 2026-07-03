@@ -137,7 +137,7 @@ function getVoiceCode(lang, gender) {
     } else if (l.includes('urdu')) {
         return isMale ? 'ur-PK-AsadNeural' : 'ur-PK-UzmaNeural';
     } else if (l.includes('bengali') || l.includes('bangla')) {
-        return isMale ? 'bn-IN-BashkarNeural' : 'bn-IN-TanishaNeural';
+        return isMale ? 'bn-IN-BashkarNeural' : 'bn-IN-TanishaaNeural';
     } else if (l.includes('french')) {
         return isMale ? 'fr-FR-HenriNeural' : 'fr-FR-DeniseNeural';
     } else if (l.includes('german')) {
@@ -1037,6 +1037,28 @@ server.listen(port, '0.0.0.0', () => {
     console.log(`HTTP Dashboard server listening on port ${port}`);
 });
 
+function getPuppeteerArgs() {
+    const isRender = !!process.env.RENDER || process.platform !== 'win32';
+    const baseArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        '--window-size=1280,800'
+    ];
+    if (isRender) {
+        baseArgs.push(
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--no-zygote',
+            '--single-process',
+            '--js-flags=--max-old-space-size=150',
+            '--disable-extensions'
+        );
+    }
+    return baseArgs;
+}
+
 function bootClient() {
     const mongoUri = process.env.MONGO_URI;
     if (mongoUri) {
@@ -1074,19 +1096,7 @@ function initializeClientWithRemoteAuth(store) {
         puppeteer: {
             headless: true,
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--window-size=1280,800',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--no-zygote',
-                '--single-process',
-                '--js-flags=--max-old-space-size=150',
-                '--disable-extensions'
-            ]
+            args: getPuppeteerArgs()
         }
     });
     
@@ -1110,19 +1120,7 @@ function initLocalClient() {
         puppeteer: {
             headless: true,
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--window-size=1280,800',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--no-zygote',
-                '--single-process',
-                '--js-flags=--max-old-space-size=150',
-                '--disable-extensions'
-            ]
+            args: getPuppeteerArgs()
         }
     });
     
