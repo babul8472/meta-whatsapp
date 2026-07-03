@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meta AI Video Asset Control Center</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(17, 24, 39, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --primary: #8b5cf6;
+            --primary-glow: rgba(139, 92, 246, 0.4);
+            --accent: #06b6d4;
+            --accent-glow: rgba(6, 182, 212, 0.4);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --success: #10b981;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image:
+                radial-gradient(circle at 10% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.15) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        header {
+            padding: 2rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--panel-border);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(11, 15, 25, 0.8);
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px var(--primary-glow);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            background: linear-gradient(to right, #ffffff, #d1d5db);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--panel-border);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
+            box-shadow: 0 0 8px rgba(156, 163, 175, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.active {
+            background-color: var(--success);
+            box-shadow: 0 0 10px var(--success);
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-dot.generating {
+            background-color: var(--primary);
+            box-shadow: 0 0 10px var(--primary);
+            animation: pulse 1.2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            50% {
+                transform: scale(1.2);
+                opacity: 0.6;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 2rem;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #ffffff;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.75rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        textarea,
+        select,
+        input[type="text"] {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 12px 16px;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.25s ease;
+            outline: none;
+        }
+
+        textarea:focus,
+        select:focus,
+        input[type="text"]:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 10px var(--primary-glow);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        /* Segmented switches */
+        .segmented-control {
+            display: flex;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 4px;
+            gap: 4px;
+        }
+
+        .segmented-option {
+            flex: 1;
+            text-align: center;
+        }
+
+        .segmented-option input[type="radio"] {
+            display: none;
+        }
+
+        .segmented-option label {
+            display: block;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: none;
+            transition: all 0.2s ease;
+        }
+
+        .segmented-option input[type="radio"]:checked+label {
+            background: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+        }
+
+        /* Aspect ratio selection */
+        .ratio-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .ratio-option input[type="radio"] {
+            display: none;
+        }
+
+        .ratio-card {
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 1rem 0.5rem;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.25s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ratio-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .ratio-shape {
+            border: 2px dashed var(--text-muted);
+            border-radius: 4px;
+            transition: all 0.25s ease;
+        }
+
+        .ratio-shape.landscape {
+            width: 48px;
+            height: 27px;
+            /* 16:9 */
+        }
+
+        .ratio-shape.portrait {
+            width: 27px;
+            height: 48px;
+            /* 9:16 */
+        }
+
+        .ratio-shape.square {
+            width: 36px;
+            height: 36px;
+            /* 1:1 */
+        }
+
+        .ratio-option input[type="radio"]:checked+.ratio-card {
+            border-color: var(--accent);
+            background: rgba(6, 182, 212, 0.06);
+            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.15);
+        }
+
+        .ratio-option input[type="radio"]:checked+.ratio-card .ratio-shape {
+            border-color: var(--accent);
+            border-style: solid;
+        }
+
+        .ratio-card span {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        /* Generate button */
+        .btn-submit {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            padding: 16px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 20px var(--primary-glow);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 1rem;
+        }
+
+        .btn-submit:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(139, 92, 246, 0.5);
+            filter: brightness(1.1);
+        }
+
+        .btn-submit:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-submit:disabled {
+            background: var(--text-muted);
+            box-shadow: none;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        /* Console log container */
+        .console-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 300px;
+        }
+
+        .terminal-header {
+            background: #111827;
+            border: 1px solid var(--panel-border);
+            border-bottom: none;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            padding: 10px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .terminal-dot.red {
+            background-color: #f87171;
+        }
+
+        .terminal-dot.yellow {
+            background-color: #fbbf24;
+        }
+
+        .terminal-dot.green {
+            background-color: #34d399;
+        }
+
+        .terminal-title {
+            font-family: 'Fira Code', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .terminal-body {
+            background: #090d16;
+            border: 1px solid var(--panel-border);
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            padding: 16px;
+            flex: 1;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.85rem;
+            color: #34d399;
+            overflow-y: auto;
+            max-height: 450px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+            line-height: 1.4;
+        }
+
+        .log-error {
+            color: var(--danger);
+        }
+
+        .log-warn {
+            color: var(--accent);
+        }
+
+        .log-success {
+            color: var(--success);
+        }
+
+        .log-system {
+            color: #818cf8;
+        }
+
+        /* Live screenshot container */
+        .screenshot-container {
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            overflow: hidden;
+            background: #111827;
+            position: relative;
+            aspect-ratio: 16 / 10;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .screenshot-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            background: #000;
+        }
+
+        .screenshot-placeholder {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .screenshot-badge {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            background: rgba(17, 24, 39, 0.85);
+            padding: 4px 12px;
+            border-radius: 10px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            border: 1px solid var(--panel-border);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            backdrop-filter: blur(5px);
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="logo-container">
+            <div class="logo-icon">M</div>
+            <h1>Meta AI Video Asset Dashboard</h1>
+        </div>
+        <div class="status-badge">
+            <div class="status-dot" id="global-status-dot"></div>
+            <span id="global-status-text">Client Initializing...</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Column: Inputs Form & Video Output Player -->
+        <div style="display: flex; flex-direction: column; gap: 2rem;">
+            <!-- WhatsApp Connection Control Panel -->
+            <section class="card" id="whatsapp-conn-card">
+                <div class="card-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                    </svg>
+                    WhatsApp Web Connection
+                </div>
+                
+                <div id="wa-status-container" style="text-align: center; padding: 1.5rem 0;">
+                    <!-- State: Connecting -->
+                    <div id="wa-state-connecting">
+                        <div class="spinner" style="margin: 0 auto 1rem auto; width: 36px; height: 36px;"></div>
+                        <p style="color: var(--text-dim); margin: 0;">Connecting to WhatsApp Web browser...</p>
+                    </div>
+                    
+                    <!-- State: QR Scanner -->
+                    <div id="wa-state-qr" style="display: none;">
+                        <p style="color: var(--text-main); font-weight: 500; margin-bottom: 1rem;">Please scan this QR code with WhatsApp on your phone:</p>
+                        <div style="background: white; padding: 12px; display: inline-block; border-radius: 12px; margin-bottom: 1rem; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+                            <img id="wa-qr-img" src="" alt="WhatsApp QR Code" style="width: 250px; height: 250px; display: block;">
+                        </div>
+                        <p style="color: var(--text-dim); font-size: 0.85rem; margin: 0;">Open WhatsApp → Settings → Linked Devices → Link a Device</p>
+                    </div>
+                    
+                    <!-- State: Connected -->
+                    <div id="wa-state-connected" style="display: none;">
+                        <div style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); padding: 0.5rem 1rem; border-radius: 50px; font-weight: 600; margin-bottom: 1.5rem; box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);">
+                            <span class="status-dot active" style="background: var(--success);"></span>
+                            WhatsApp Connected & Active
+                        </div>
+                        <p style="color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem;">Your session is active. You can generate videos now.</p>
+                        <button id="btn-wa-logout" class="btn-submit" style="background: linear-gradient(135deg, #ef4444, #b91c1c); max-width: 200px; margin: 0 auto; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.25rem;">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+                            </svg>
+                            Log Out / Disconnect
+                        </button>
+                    </div>
+                </div>
+            </section>
+            <!-- Input Form Card -->
+            <section class="card">
+                <div class="card-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                    Configure Parameters
+                </div>
+
+                <form id="generator-form">
+                    <div class="form-group">
+                        <label for="topic">Topic / Video Concept</label>
+                        <textarea id="topic" required
+                            placeholder="Describe the topic for script generation (e.g. Space exploration and human colonizing of Mars)"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Duration</label>
+                        <div class="segmented-control">
+                            <div class="segmented-option">
+                                <input type="radio" id="dur-30" name="duration" value="30 seconds">
+                                <label for="dur-30">30s</label>
+                            </div>
+                            <div class="segmented-option">
+                                <input type="radio" id="dur-60" name="duration" value="60 seconds" checked>
+                                <label for="dur-60">60s</label>
+                            </div>
+                            <div class="segmented-option">
+                                <input type="radio" id="dur-90" name="duration" value="90 seconds">
+                                <label for="dur-90">90s</label>
+                            </div>
+                            <div class="segmented-option">
+                                <input type="radio" id="dur-120" name="duration" value="120 seconds">
+                                <label for="dur-120">120s</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="language">Language</label>
+                        <select id="language">
+                            <option value="English" selected>English</option>
+                            <option value="Hindi">Hindi</option>
+                            <option value="Urdu">Urdu</option>
+                            <option value="Bengali">Bengali</option>
+                            <option value="Spanish">Spanish</option>
+                            <option value="French">French</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Voiceover Gender</label>
+                        <div class="segmented-control">
+                            <div class="segmented-option">
+                                <input type="radio" id="voice-female" name="voiceover" value="Female" checked>
+                                <label for="voice-female">Female</label>
+                            </div>
+                            <div class="segmented-option">
+                                <input type="radio" id="voice-male" name="voiceover" value="Male">
+                                <label for="voice-male">Male</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Aspect Ratio</label>
+                        <div class="ratio-grid">
+                            <label class="ratio-option">
+                                <input type="radio" name="aspect_ratio" value="16:9" checked>
+                                <div class="ratio-card">
+                                    <div class="ratio-shape landscape"></div>
+                                    <span>16:9</span>
+                                </div>
+                            </label>
+                            <label class="ratio-option">
+                                <input type="radio" name="aspect_ratio" value="9:16">
+                                <div class="ratio-card">
+                                    <div class="ratio-shape portrait"></div>
+                                    <span>9:16</span>
+                                </div>
+                            </label>
+                            <label class="ratio-option">
+                                <input type="radio" name="aspect_ratio" value="1:1">
+                                <div class="ratio-card">
+                                    <div class="ratio-shape square"></div>
+                                    <span>1:1</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="btn-submit" class="btn-submit" disabled>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                        Start Asset Generation
+                    </button>
+                </form>
+            </section>
+
+            <!-- Video Output Card (Hidden by default, shown when video is ready) -->
+            <section class="card" id="video-card" style="display: none;">
+                <div class="card-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+                        <line x1="7" y1="2" x2="7" y2="22" />
+                        <line x1="17" y1="2" x2="17" y2="22" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <line x1="2" y1="7" x2="7" y2="7" />
+                        <line x1="2" y1="17" x2="7" y2="17" />
+                        <line x1="17" y1="17" x2="22" y2="17" />
+                        <line x1="17" y1="7" x2="22" y2="7" />
+                    </svg>
+                    Final Video Reel Output
+                </div>
+                <div class="video-container"
+                    style="border: 1px solid var(--panel-border); border-radius: 12px; overflow: hidden; background: #000; display: flex; justify-content: center; align-items: center;">
+                    <video id="output-video-player" controls
+                        style="width: 100%; max-height: 500px; display: block;"></video>
+                </div>
+                <a id="btn-download-video" class="btn-submit"
+                    style="text-decoration: none; margin-top: 0; background: linear-gradient(135deg, #10b981, #06b6d4); box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);"
+                    download="final_video.mp4">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Download Compiled Reel
+                </a>
+            </section>
+        </div>
+
+        <!-- Right Column: Live View & Logs Console -->
+        <section class="card">
+            <div class="card-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+                Live Monitor
+            </div>
+
+            <!-- Screenshot View -->
+            <div class="screenshot-container">
+                <div class="screenshot-badge">
+                    <span class="status-dot active"></span>
+                    <span>Live Headless Browser</span>
+                </div>
+                <img id="live-screenshot" class="screenshot-img" src="/api/screenshot?t=0" alt="Live Screenshot"
+                    style="display: none;">
+                <div id="screenshot-loader" class="screenshot-placeholder">
+                    <div class="spinner"></div>
+                    <span>Initializing browser interface...</span>
+                </div>
+            </div>
+
+            <!-- Terminal Logs -->
+            <div class="console-container">
+                <div class="terminal-header">
+                    <div class="terminal-dots">
+                        <div class="terminal-dot red"></div>
+                        <div class="terminal-dot yellow"></div>
+                        <div class="terminal-dot green"></div>
+                    </div>
+                    <div class="terminal-title">CONSOLE.LOG</div>
+                </div>
+                <div id="terminal-body" class="terminal-body">
+                    <div class="log-system">> Waiting for server connection...</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const form = document.getElementById('generator-form');
+        const submitBtn = document.getElementById('btn-submit');
+        const terminal = document.getElementById('terminal-body');
+        const statusDot = document.getElementById('global-status-dot');
+        const statusText = document.getElementById('global-status-text');
+        const liveScreenshot = document.getElementById('live-screenshot');
+        const screenshotLoader = document.getElementById('screenshot-loader');
+
+        const videoCard = document.getElementById('video-card');
+        const outputVideoPlayer = document.getElementById('output-video-player');
+        const btnDownloadVideo = document.getElementById('btn-download-video');
+
+        let isGenerating = false;
+        let lastLogIndex = 0;
+
+        const waConnecting = document.getElementById('wa-state-connecting');
+        const waQr = document.getElementById('wa-state-qr');
+        const waQrImg = document.getElementById('wa-qr-img');
+        const waConnected = document.getElementById('wa-state-connected');
+        const btnWaLogout = document.getElementById('btn-wa-logout');
+
+        async function pollConnectionStatus() {
+            try {
+                const res = await fetch('/api/whatsapp/status');
+                const data = await res.json();
+                
+                if (data.isReady) {
+                    waConnecting.style.display = 'none';
+                    waQr.style.display = 'none';
+                    waConnected.style.display = 'block';
+                } else if (data.qr) {
+                    waConnecting.style.display = 'none';
+                    waQr.style.display = 'block';
+                    waConnected.style.display = 'none';
+                    waQrImg.src = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(data.qr)}&size=250x250`;
+                } else {
+                    waConnecting.style.display = 'block';
+                    waQr.style.display = 'none';
+                    waConnected.style.display = 'none';
+                }
+            } catch(e) {}
+        }
+
+        btnWaLogout.addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to disconnect WhatsApp and log out?')) return;
+            
+            btnWaLogout.setAttribute('disabled', 'true');
+            btnWaLogout.textContent = 'Logging out...';
+            
+            try {
+                await fetch('/api/whatsapp/logout', { method: 'POST' });
+            } catch(e) {}
+            
+            setTimeout(() => {
+                btnWaLogout.removeAttribute('disabled');
+                btnWaLogout.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.25rem;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Log Out / Disconnect`;
+                pollConnectionStatus();
+            }, 3000);
+        });
+
+        // Check overall client and pipeline status
+        async function updateStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                statusText.textContent = data.statusText;
+
+                if (data.isReady) {
+                    if (!isGenerating) {
+                        submitBtn.removeAttribute('disabled');
+                    }
+                    statusDot.className = 'status-dot active';
+                } else {
+                    submitBtn.setAttribute('disabled', 'true');
+                    statusDot.className = 'status-dot';
+                }
+
+                if (data.isGenerating) {
+                    isGenerating = true;
+                    submitBtn.setAttribute('disabled', 'true');
+                    statusDot.className = 'status-dot generating';
+                } else {
+                    if (isGenerating) {
+                        isGenerating = false;
+                        if (data.isReady) submitBtn.removeAttribute('disabled');
+                    }
+                }
+
+                // Show compiled video card if generation completed successfully
+                if (data.lastFolder && !data.isGenerating) {
+                    const videoSrc = `/api/download?folder=${data.lastFolder}&file=final_video.mp4`;
+                    if (outputVideoPlayer.getAttribute('data-folder') !== data.lastFolder) {
+                        outputVideoPlayer.setAttribute('data-folder', data.lastFolder);
+                        outputVideoPlayer.src = videoSrc;
+                        btnDownloadVideo.href = videoSrc;
+                    }
+                    videoCard.style.display = 'flex';
+                } else {
+                    videoCard.style.display = 'none';
+                }
+            } catch (e) { }
+        }
+
+        // Poll logs incrementally
+        async function fetchLogs() {
+            try {
+                const res = await fetch(`/api/logs?startIndex=${lastLogIndex}`);
+                const data = await res.json();
+
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => {
+                        const div = document.createElement('div');
+                        const text = log.text;
+
+                        if (text.includes('[ERROR]')) {
+                            div.className = 'log-error';
+                        } else if (text.includes('SUCCESS:') || text.includes('COMPLETED!')) {
+                            div.className = 'log-success';
+                        } else if (text.includes('WARNING:')) {
+                            div.className = 'log-warn';
+                        } else if (text.startsWith('---') || text.startsWith('===')) {
+                            div.className = 'log-system';
+                        }
+
+                        div.textContent = text;
+                        terminal.appendChild(div);
+                    });
+
+                    lastLogIndex = data.nextIndex;
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+            } catch (e) { }
+        }
+
+        // Poll live screenshot
+        function refreshScreenshot() {
+            const tempImg = new Image();
+            tempImg.onload = function () {
+                liveScreenshot.src = tempImg.src;
+                liveScreenshot.style.display = 'block';
+                screenshotLoader.style.display = 'none';
+            };
+            tempImg.onerror = function () {
+                // Keep showing loader if image hasn't generated yet
+            };
+            tempImg.src = `/api/screenshot?t=${Date.now()}`;
+        }
+
+        // Form Submit
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (isGenerating) return;
+
+            const topicVal = document.getElementById('topic').value.trim();
+            const durationVal = document.querySelector('input[name="duration"]:checked').value;
+            const languageVal = document.getElementById('language').value;
+            const voiceoverVal = document.querySelector('input[name="voiceover"]:checked').value;
+            const aspectVal = document.querySelector('input[name="aspect_ratio"]:checked').value;
+
+            submitBtn.setAttribute('disabled', 'true');
+            isGenerating = true;
+
+            // Clear log console view for new run
+            terminal.innerHTML = '<div class="log-system">> Launching media generation script...</div>';
+            lastLogIndex = 0;
+
+            try {
+                const res = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: topicVal,
+                        duration: durationVal,
+                        language: languageVal,
+                        voiceover: voiceoverVal,
+                        aspect_ratio: aspectVal
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    const div = document.createElement('div');
+                    div.className = 'log-error';
+                    div.textContent = `[ERROR] Failed to start pipeline: ${data.message}`;
+                    terminal.appendChild(div);
+                    isGenerating = false;
+                    submitBtn.removeAttribute('disabled');
+                }
+            } catch (err) {
+                const div = document.createElement('div');
+                div.className = 'log-error';
+                div.textContent = `[ERROR] Connection failed: ${err.message}`;
+                terminal.appendChild(div);
+                isGenerating = false;
+                submitBtn.removeAttribute('disabled');
+            }
+        });
+
+        // Intervals for polling
+        setInterval(updateStatus, 2000);
+        setInterval(fetchLogs, 1500);
+        setInterval(refreshScreenshot, 3000);
+        setInterval(pollConnectionStatus, 2000);
+
+        // Initial calls
+        updateStatus();
+        fetchLogs();
+        refreshScreenshot();
+        pollConnectionStatus();
+    </script>
+</body>
+
+</html>
