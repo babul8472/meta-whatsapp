@@ -1,0 +1,9 @@
+node_modules/
+output_*/
+.wwebjs_auth/
+.wwebjs_auth_backup/
+.wwebjs_cache/
+live_status.png
+after_click.png
+after_modal_dismiss.png
+index_debug.log
