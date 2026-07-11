@@ -578,6 +578,20 @@
                     </div>
 
                     <div class="form-group">
+                        <label>Asset Type</label>
+                        <div class="segmented-control">
+                            <div class="segmented-option">
+                                <input type="radio" id="asset-video" name="asset_type" value="video" checked>
+                                <label for="asset-video">Video Clips</label>
+                            </div>
+                            <div class="segmented-option">
+                                <input type="radio" id="asset-image" name="asset_type" value="image">
+                                <label for="asset-image">Image Slides</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
                         <label>Duration</label>
                         <div class="segmented-control">
                             <div class="segmented-option">
@@ -893,6 +907,7 @@
             if (isGenerating) return;
 
             const topicVal = document.getElementById('topic').value.trim();
+            const assetTypeVal = document.querySelector('input[name="asset_type"]:checked').value;
             const durationVal = document.querySelector('input[name="duration"]:checked').value;
             const languageVal = document.getElementById('language').value;
             const voiceoverVal = document.querySelector('input[name="voiceover"]:checked').value;
@@ -911,6 +926,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         topic: topicVal,
+                        asset_type: assetTypeVal,
                         duration: durationVal,
                         language: languageVal,
                         voiceover: voiceoverVal,

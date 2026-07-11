@@ -3,20 +3,29 @@ const fs = require('fs');
 
 const logFile = path.join(__dirname, 'index_debug.log');
 // Clear the log file on launch
-try { fs.writeFileSync(logFile, '', 'utf8'); } catch (e) {}
+try { fs.writeFileSync(logFile, '', 'utf8'); } catch (e) { }
 
 const originalLog = console.log;
-console.log = function(...args) {
+console.log = function (...args) {
     originalLog.apply(console, args);
     const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ') + '\n';
-    try { fs.appendFileSync(logFile, msg, 'utf8'); } catch (e) {}
+    try { fs.appendFileSync(logFile, msg, 'utf8'); } catch (e) { }
 };
 const originalError = console.error;
-console.error = function(...args) {
+console.error = function (...args) {
     originalError.apply(console, args);
     const msg = '[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ') + '\n';
-    try { fs.appendFileSync(logFile, msg, 'utf8'); } catch (e) {}
+    try { fs.appendFileSync(logFile, msg, 'utf8'); } catch (e) { }
 };
+
+// Register global error handlers to capture unhandled async crashes
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('GLOBAL UNHANDLED REJECTION:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('GLOBAL UNCAUGHT EXCEPTION:', err);
+});
 
 console.log('Script started. Initializing client in HEADLESS mode...');
 
@@ -26,13 +35,6 @@ const https = require('https');
 const { execSync, exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
-
-// Define Input Parameters
-const topic = "Space exploration and human colonizing of Mars";
-const duration = "60 seconds";
-const language = "English"; // Can be English, Hindi, Urdu, Bengali, Spanish, etc.
-const voiceover = "Female"; // Male or Female
-const aspect_ratio = "16:9"; // "16:9", "9:16", or "1:1"
 
 // Setup output directory
 const outputDirName = `output_${Date.now()}`;
@@ -58,16 +60,26 @@ function registerClientEvents(clientInstance) {
         isClientReady = true;
         currentQrText = null;
         statusText = "Ready to start pipeline";
-        
+
         const page = clientInstance.pupPage;
         if (page) {
             // Set up live monitor screenshot interval saving to workspace
             setInterval(async () => {
                 try {
                     await page.screenshot({ path: path.join(__dirname, 'live_status.png') });
-                } catch (e) {}
+                } catch (e) { }
             }, 3000);
         }
+    });
+
+    clientInstance.on('auth_failure', (msg) => {
+        console.error('AUTHENTICATION FAILURE:', msg);
+        statusText = "Authentication failed. Re-initializing...";
+    });
+
+    clientInstance.on('loading_screen', (percent, message) => {
+        console.log(`Loading Screen: ${percent}% - ${message}`);
+        statusText = `Loading WhatsApp Web: ${percent}%`;
     });
 
     clientInstance.on('disconnected', async (reason) => {
@@ -75,11 +87,11 @@ function registerClientEvents(clientInstance) {
         isClientReady = false;
         currentQrText = null;
         statusText = "Disconnected. Re-initializing WhatsApp Web...";
-        
+
         try {
             await clientInstance.destroy();
-        } catch(e) {}
-        
+        } catch (e) { }
+
         setTimeout(() => {
             bootClient();
         }, 3000);
@@ -129,7 +141,7 @@ function downloadUrl(url, destPath) {
 function getVoiceCode(lang, gender) {
     const l = lang.toLowerCase();
     const isMale = gender.toLowerCase().includes('male') && !gender.toLowerCase().includes('female');
-    
+
     if (l.includes('hindi')) {
         return isMale ? 'hi-IN-MadhurNeural' : 'hi-IN-SwaraNeural';
     } else if (l.includes('spanish')) {
@@ -148,77 +160,14 @@ function getVoiceCode(lang, gender) {
     }
 }
 
-// Construct FFmpeg zoompan filter based on effect and direction
-function getZoompanFilter(imageSize, position, totalFrames, width, height) {
-    const defaultZoom = '1';
-    const defaultX = 'iw/2-(iw/zoom/2)';
-    const defaultY = 'ih/2-(ih/zoom/2)';
-    
-    let z = defaultZoom;
-    let x = defaultX;
-    let y = defaultY;
-    
-    const size = (imageSize || '').toLowerCase();
-    const pos = (position || '').toLowerCase();
-    
-    const cx = 'iw/2-(iw/zoom/2)';
-    const cy = 'ih/2-(ih/zoom/2)';
-    
-    if (size === 'pan') {
-        z = '1.3';
-        if (pos === 'top') {
-            y = `(${cy})*(1-on/${totalFrames})`;
-        } else if (pos === 'bottom') {
-            y = `(${cy})*(1+on/${totalFrames})`;
-        } else if (pos === 'left') {
-            x = `(${cx})*(1-on/${totalFrames})`;
-        } else if (pos === 'right') {
-            x = `(${cx})*(1+on/${totalFrames})`;
-        }
-    } else if (size === 'zoom') {
-        z = `min(zoom+0.0015,1.5)`;
-    } else if (size === 'zoomout') {
-        z = `max(1.5-0.0015*on,1)`;
-    } else if (size === 'panzoom') {
-        z = `min(zoom+0.0015,1.5)`;
-        if (pos === 'top') {
-            y = `(${cy})*(1-on/${totalFrames})`;
-        } else if (pos === 'bottom') {
-            y = `(${cy})*(1+on/${totalFrames})`;
-        } else if (pos === 'left') {
-            x = `(${cx})*(1-on/${totalFrames})`;
-        } else if (pos === 'right') {
-            x = `(${cx})*(1+on/${totalFrames})`;
-        }
-    } else if (size === 'panzoomout') {
-        z = `max(1.5-0.0015*on,1)`;
-        if (pos === 'top') {
-            y = `(${cy})*(on/${totalFrames})`;
-        } else if (pos === 'bottom') {
-            y = `(${cy})*(2-on/${totalFrames})`;
-        } else if (pos === 'left') {
-            x = `(${cx})*(on/${totalFrames})`;
-        } else if (pos === 'right') {
-            x = `(${cx})*(2-on/${totalFrames})`;
-        }
-    }
-    
-    // If no zoom/pan effect, return standard scale filter
-    if (z === defaultZoom && x === defaultX && y === defaultY) {
-        return `scale=${width}:${height}`;
-    }
-    
-    return `scale=8000:-1,zoompan=z='${z}':x='${x}':y='${y}':d=${totalFrames}:s=${width}x${height}`;
-}
-
 // Edge TTS voice generation executor using temporary file to prevent Windows quote escaping issues with retry backoff
 async function generateVoiceover(text, voice, destPath) {
     const tempFile = destPath + '.txt';
     fs.writeFileSync(tempFile, text, 'utf8');
-    
+
     let success = false;
     let attempts = 3;
-    
+
     for (let attempt = 1; attempt <= attempts; attempt++) {
         try {
             console.log(`Generating Edge TTS voiceover using voice: ${voice} (Attempt #${attempt}/${attempts})...`);
@@ -235,9 +184,9 @@ async function generateVoiceover(text, voice, destPath) {
             }
         }
     }
-    
-    try { fs.unlinkSync(tempFile); } catch (e) {}
-    
+
+    try { fs.unlinkSync(tempFile); } catch (e) { }
+
     if (!success) {
         throw new Error(`Failed to generate Edge TTS voiceover after ${attempts} attempts.`);
     }
@@ -282,29 +231,50 @@ async function dismissModals(page) {
 // Check if response text indicates block/failure from Meta AI
 function isGenerationFailed(text) {
     const lower = text.toLowerCase();
-    return lower.includes("can't generate") || 
-           lower.includes("couldn't generate") || 
-           lower.includes("blocked") || 
-           lower.includes("refuse") || 
-           lower.includes("policy") || 
-           lower.includes("violation") || 
-           lower.includes("unable") || 
-           lower.includes("error");
+    return lower.includes("can't generate") ||
+        lower.includes("couldn't generate") ||
+        lower.includes("blocked") ||
+        lower.includes("refuse") ||
+        lower.includes("policy") ||
+        lower.includes("violation") ||
+        lower.includes("unable") ||
+        lower.includes("error");
 }
 
-// Helper to write text into the chat compose field at once (react-safe inner text inserter)
+// Helper to write text into the chat compose field with simulated human typing
 async function writeTextToInput(page, selector, text) {
-    await page.evaluate((sel, txt) => {
+    await page.waitForSelector(selector);
+    // Clear current content first
+    await page.evaluate((sel) => {
         const el = document.querySelector(sel);
         if (el) {
             el.focus();
-            // Clear current content
             document.execCommand('selectAll', false, null);
             document.execCommand('delete', false, null);
-            // Insert full multiline string as a single text block
-            document.execCommand('insertText', false, txt);
         }
-    }, selector, text);
+    }, selector);
+
+    // If text is very long (e.g. script prompt), write all at once to prevent cursor drift and typos
+    if (text.length > 300) {
+        await page.evaluate((sel, txt) => {
+            const el = document.querySelector(sel);
+            if (el) {
+                document.execCommand('insertText', false, txt);
+            }
+        }, selector, text);
+    } else {
+        // Character by character typing for short prompts
+        for (const char of text) {
+            await page.evaluate((sel, c) => {
+                const el = document.querySelector(sel);
+                if (el) {
+                    document.execCommand('insertText', false, c);
+                }
+            }, selector, char);
+            // Random delay between 40ms and 120ms to simulate human typing speed (50-100 WPM)
+            await new Promise(r => setTimeout(r, Math.random() * 80 + 40));
+        }
+    }
 }
 
 // Poll helper that checks for a NEW message from Meta AI after a baseline message ID, validating its content via validatorFn
@@ -325,7 +295,7 @@ async function pollNewMessage(chat, lastMsgId, promptStartTime, validatorFn, max
             } else {
                 newMessages = messages.filter(m => m.timestamp >= promptStartTime - 60);
             }
-            
+
             // Look for the latest incoming message from Meta AI in the new messages
             const replyMsg = newMessages.slice().reverse().find(m => !m.fromMe);
             if (replyMsg) {
@@ -347,17 +317,75 @@ let statusText = "Client starting...";
 let lastFolder = "";
 let currentQrText = null;
 
+// Construct FFmpeg zoompan filter based on effect and direction (for images)
+function getZoompanFilter(imageSize, position, totalFrames, width, height) {
+    const defaultZoom = '1';
+    const defaultX = 'iw/2-(iw/zoom/2)';
+    const defaultY = 'ih/2-(ih/zoom/2)';
 
+    let z = defaultZoom;
+    let x = defaultX;
+    let y = defaultY;
+
+    const size = (imageSize || '').toLowerCase();
+    const pos = (position || '').toLowerCase();
+
+    const cx = 'iw/2-(iw/zoom/2)';
+    const cy = 'ih/2-(ih/zoom/2)';
+
+    if (size === 'pan') {
+        z = '1.3';
+        if (pos === 'top') {
+            y = `(${cy})*(1-on/${totalFrames})`;
+        } else if (pos === 'bottom') {
+            y = `(${cy})*(1+on/${totalFrames})`;
+        } else if (pos === 'left') {
+            x = `(${cx})*(1-on/${totalFrames})`;
+        } else if (pos === 'right') {
+            x = `(${cx})*(1+on/${totalFrames})`;
+        }
+    } else if (size === 'zoom') {
+        z = `min(zoom+0.0015,1.5)`;
+    } else if (size === 'zoomout') {
+        z = `max(1.5-0.0015*on,1)`;
+    } else if (size === 'panzoom') {
+        z = `min(zoom+0.0015,1.5)`;
+        if (pos === 'top') {
+            y = `(${cy})*(1-on/${totalFrames})`;
+        } else if (pos === 'bottom') {
+            y = `(${cy})*(1+on/${totalFrames})`;
+        } else if (pos === 'left') {
+            x = `(${cx})*(1-on/${totalFrames})`;
+        } else if (pos === 'right') {
+            x = `(${cx})*(1+on/${totalFrames})`;
+        }
+    } else if (size === 'panzoomout') {
+        z = `max(1.5-0.0015*on,1)`;
+        if (pos === 'top') {
+            y = `(${cy})*(on/${totalFrames})`;
+        } else if (pos === 'bottom') {
+            y = `(${cy})*(2-on/${totalFrames})`;
+        } else if (pos === 'left') {
+            x = `(${cx})*(on/${totalFrames})`;
+        } else if (pos === 'right') {
+            x = `(${cx})*(2-on/${totalFrames})`;
+        }
+    }
+
+    return `zoompan=z='${z}':x='${x}':y='${y}':d=${totalFrames}:s=${width}x${height}`;
+}
 
 // Run generation pipeline on demand
-async function runGenerationPipeline({ topic, duration, language, voiceover, aspect_ratio }) {
+async function runGenerationPipeline({ topic, asset_type, duration, language, voiceover, aspect_ratio }) {
     isGenerating = true;
     statusText = "Starting pipeline...";
-    
+    const assetType = (asset_type || 'video').toLowerCase();
+
     // Clear the debug log for a fresh start on each UI trigger
-    try { fs.writeFileSync(logFile, '', 'utf8'); } catch (e) {}
+    try { fs.writeFileSync(logFile, '', 'utf8'); } catch (e) { }
     console.log('--- NEW PIPELINE RUN ---');
     console.log(`Topic: "${topic}"`);
+    console.log(`Asset Type: "${assetType}"`);
     console.log(`Duration: "${duration}"`);
     console.log(`Language: "${language}"`);
     console.log(`Voiceover: "${voiceover}"`);
@@ -453,14 +481,24 @@ async function runGenerationPipeline({ topic, duration, language, voiceover, asp
 
         const inputSelector = 'div[data-testid="conversation-compose-box-input"], div[contenteditable="true"][role="textbox"]';
         await page.waitForSelector(inputSelector, { timeout: 15000 });
-        
+
         const durSeconds = parseInt(duration) || 60;
-        const wordCount = durSeconds * 3;
+        const wordCount = Math.round(durSeconds * (400 / 60));
         const totalScenes = Math.round(durSeconds / 3);
         const sceneDuration = 3.0;
 
+        const promptInstruction = assetType === 'video'
+            ? `Video Prompt: generate a video of [English prompt — character(s) with fixed appearance if applicable, action/expression, setting, camera angle (close-up/wide/medium/POV), lighting mood matching genre, art style: cinematic realistic video style, vertical 9:16 composition, no text or watermark in video]`
+            : `Image Prompt: /imagine [English prompt — character(s) with fixed appearance if applicable, action/expression, setting, camera angle (close-up/wide/medium/POV), lighting mood matching genre, art style: cinematic realistic photo style, vertical 9:16 composition, no text or watermark in image]`;
+
+        const finalCheckInstruction = assetType === 'video'
+            ? `Make sure each Video Prompt is formatted EXACTLY starting with: generate a video of`
+            : `Make sure each Image Prompt is formatted EXACTLY starting with: /imagine`;
+
         // Create script prompt based on input parameters and strict custom formatting rules
-        const scriptPrompt = `Topic: "${topic}"
+        const scriptPrompt = `[CONTEXT MEMORY: Please remember this conversation and the guidelines below for all subsequent messages.]
+
+Topic: "${topic}"
 Duration: ${durSeconds} seconds
 Language: ${language}
 Voiceover Gender: ${voiceover}
@@ -468,7 +506,23 @@ Aspect Ratio: ${aspect_ratio}
 
 You are an expert short-form video scriptwriter specializing in viral social media reels across all genres (comedy, drama, motivational, horror, educational, emotional, mythological, etc.).
 
-CRITICAL RULE (applies to every single scene, no exceptions): Narration must ALWAYS be short — 6 to 10 words per scene, spoken in under 4 seconds. Never write long or descriptive sentences. Short, punchy, one-breath lines only. This rule overrides everything else — if a story beat needs more words, split it into two scenes instead of writing a longer line.
+CRITICAL RULE FOR NARRATION STYLE (applies to every single scene, no exceptions):
+- Each scene's narration must be ONE flowing sentence, not multiple short fragments separated by full stops.
+- Connect ideas using commas, "and", "where", "as", or an em dash (—) instead of breaking them into separate short sentences.
+- Avoid choppy 3-4 word sentences (e.g. "One country. One heartbeat." is WRONG).
+- Instead write it as a single connected sentence (e.g. "One country, a billion stories, and a single heartbeat" is CORRECT).
+- Keep each scene's narration under 15 words total, but structured as one smooth, speakable sentence — not a list of fragments.
+- The tone should sound natural when read aloud by a text-to-speech voice, with a clear rhythm and no abrupt pauses.
+
+NARRATION STYLE EXAMPLES:
+* ORIGINAL (choppy - WRONG): "One country. One billion stories. One heartbeat. Welcome to India."
+  REWRITTEN (flowing - CORRECT): "One country, a billion stories, and a single heartbeat — welcome to India."
+* ORIGINAL (choppy - WRONG): "Deserts of Rajasthan. Green tea gardens of Assam. Every land has a soul."
+  REWRITTEN (flowing - CORRECT): "From the deserts of Rajasthan to the green tea gardens of Assam, every land here has its own soul."
+* ORIGINAL (choppy - WRONG): "Twenty eight states. Eight union territories. Hundreds of languages. One unity."
+  REWRITTEN (flowing - CORRECT): "Twenty-eight states, eight union territories, hundreds of languages — yet one unity."
+* ORIGINAL (choppy - WRONG): "Ancient temples stand beside glass skyscrapers. Past and future shake hands."
+  REWRITTEN (flowing - CORRECT): "Ancient temples stand beside glass skyscrapers, where past and future shake hands."
 
 STEP 1 - ANALYZE TOPIC:
 Identify genre/tone, number of characters needed (0 if narration-only/educational), and setting/time period implied by the topic.
@@ -480,10 +534,10 @@ STEP 3 - CHARACTER SETUP (skip only if topic has zero characters):
 For each character define:
 - Name (culturally appropriate to the topic/language)
 - One-line personality trait or role
-- Fixed visual appearance (clothing, build, distinguishing feature) — reuse this EXACT description in every image prompt where the character appears.
+- Fixed visual appearance (clothing, build, distinguishing feature) — reuse this EXACT description in every visual prompt where the character appears.
 
 STEP 4 - SCRIPT:
-Write a script of at least ${wordCount} words (~3 words per second of narration, scaled to ${durSeconds} seconds) in ${language}.
+Write a script of at least ${wordCount} words (~6.5 words per second of narration, scaled to ${durSeconds} seconds) in ${language}.
 - Write narration entirely in the native script of ${language} (e.g. Devanagari for Hindi) — do NOT romanize/transliterate into English letters, and do NOT mix in English words unless there is no natural equivalent.
 - Structure: Hook → Setup → Development → Peak moment → Closing line, matching genre.
 - Every line must be short and conversational — like a quick spoken thought, not a written sentence. Example of correct length: "राहुल अचानक रुक गया।" Example of WRONG length (too long, never write like this): "राहुल जो हमेशा सबसे आगे रहता था, अचानक बीच रास्ते में रुक गया और सोचने लगा।"
@@ -492,7 +546,8 @@ Write a script of at least ${wordCount} words (~3 words per second of narration,
 
 STEP 5 - SCENE BREAKDOWN:
 Split the script into exactly ${totalScenes} consecutive scenes (~${sceneDuration} seconds each).
-- HARD LIMIT: 6 to 10 words per scene narration, always. No scene may exceed 10 words, under any circumstance.
+- HARD LIMIT: under 15 words per scene narration, always. No scene may exceed 15 words, under any circumstance.
+- Each scene's narration must strictly be one flowing sentence (applying the NARRATION STYLE rules).
 - If a moment feels like it needs more words, break it into two shorter scenes instead — never stretch one scene's narration to cover it.
 - Distribute the ${wordCount}-word script across ${totalScenes} scenes as evenly as timing allows — do not pad or shorten scenes just to hit a count.
 - Carry forward the same character(s) with their EXACT fixed visual description, if applicable.
@@ -503,16 +558,16 @@ Split the script into exactly ${totalScenes} consecutive scenes (~${sceneDuratio
 For each scene, output EXACTLY in this format (no extra text/headers, no explanations outside scene blocks):
 
 Scene {number}
-Narration: [narration text in ${language}, native script only, 6-10 words maximum]
-Image Prompt: /imagine [English prompt — character(s) with fixed appearance if applicable, action/expression, setting, camera angle (close-up/wide/medium/POV), lighting mood matching genre, art style: cinematic realistic photo style, vertical 9:16 composition, no text or watermark in image]
+Narration: [narration text in ${language}, native script only, under 15 words maximum, one flowing sentence]
+${promptInstruction}
 
 Ensure exactly ${totalScenes} scenes, numbered 1 to ${totalScenes}, covering hook → setup → development → peak → closing, regardless of topic or genre.
 
-FINAL CHECK before output (mandatory — recount every scene): Go through all ${totalScenes} scenes one by one and count the words in each narration. If any scene has more than 10 words, rewrite it shorter before giving the final output. Confirm all narration is in ${language} native script, character descriptions are consistent, and there are exactly ${totalScenes} scenes.`;
-        
+FINAL CHECK before output (mandatory — recount every scene): Go through all ${totalScenes} scenes one by one and count the words in each narration. If any scene has 15 or more words, rewrite it shorter before giving the final output. Confirm all narration is in ${language} native script, character descriptions are consistent, and there are exactly ${totalScenes} scenes. ${finalCheckInstruction}`;
+
         console.log(`Writing unified script generation prompt to text field (expecting exactly ${totalScenes} scenes)...`);
         statusText = `Generating ${totalScenes}-scene script...`;
-        
+
         // Find the baseline chat and message ID before sending
         const chats = await client.getChats();
         const chat = chats.find(c => c.id._serialized === '13135550002@c.us');
@@ -522,22 +577,31 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
             statusText = "Error: Meta AI chat not found";
             return;
         }
-        
+
+        console.log('Sending /reset-ai to Meta AI to start a new chat session...');
+        try {
+            await client.sendMessage('13135550002@c.us', '/reset-ai');
+            console.log('SUCCESS: /reset-ai command sent.');
+            await new Promise(resolve => setTimeout(resolve, 4000));
+        } catch (resetErr) {
+            console.warn('WARNING: Failed to send /reset-ai command:', resetErr.message || resetErr);
+        }
+
         const initialMessages = await chat.fetchMessages({ limit: 5 });
         const lastMsgIdBeforeScript = initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].id.id : null;
         const promptStartTime = Math.floor(Date.now() / 1000);
-        
+
         await writeTextToInput(page, inputSelector, scriptPrompt);
-        
+
         await new Promise(resolve => setTimeout(resolve, 2000));
         console.log('Pressing Enter key to send prompt as a single message...');
         await page.keyboard.press('Enter');
 
         console.log(`Message sent! Polling for completed ${totalScenes}-scene script reply from Meta AI...`);
-        
+
         let scriptText = '';
         let scriptSuccess = false;
-        
+
         // Script validator function to check for the final scene start
         const scriptValidator = (msg, text) => {
             if (!text) return false;
@@ -551,7 +615,7 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
             // Wait an extra 6 seconds for the streamed text to fully settle/finish writing
             console.log('Waiting 6 seconds for script stream to fully settle...');
             await new Promise(resolve => setTimeout(resolve, 6000));
-            
+
             // Fetch messages again to get the final complete text
             const messages = await chat.fetchMessages({ limit: 5 });
             const finalMsg = messages.find(m => m.id.id === replyMsg.id.id) || replyMsg;
@@ -561,7 +625,7 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                 scriptSuccess = true;
             }
         }
-        
+
         if (!scriptSuccess || !scriptText) {
             console.error('Failed to receive completed script from Meta AI.');
             isGenerating = false;
@@ -573,23 +637,91 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         console.log(scriptText);
         console.log('-----------------------\n');
 
-        // Parse scenes using regex
-        const sceneRegex = /Scene\s+(\d+)[\s\S]*?Narration\s*:\s*([\s\S]*?)Image\s+Prompt\s*:\s*([\s\S]*?)(?=Scene\s+\d+|$)/gi;
+        // Parse scenes using regex (handling optional markdown bold asterisks and supporting Video or Image prompt keywords)
+        const sceneRegex = /(?:\*\*|\b)Scene\s+(\d+)[\s\S]*?Narration\s*\*?\*?\s*:\s*([\s\S]*?)(?:Video|Image)\s+Prompt\s*\*?\*?\s*:\s*([\s\S]*?)(?=(?:\*\*|\b)Scene\s+\d+|$)/gi;
         const scenes = [];
         let match;
         while ((match = sceneRegex.exec(scriptText)) !== null) {
             const number = parseInt(match[1]);
             let narration = match[2].trim();
-            let imagePrompt = match[3].trim();
-            
+            let scenePrompt = match[3].trim();
+
+            if (narration.toLowerCase().includes('video prompt:')) {
+                narration = narration.substring(0, narration.toLowerCase().indexOf('video prompt:')).trim();
+            }
             if (narration.toLowerCase().includes('image prompt:')) {
                 narration = narration.substring(0, narration.toLowerCase().indexOf('image prompt:')).trim();
             }
-            if (imagePrompt.toLowerCase().includes('/imagine')) {
-                imagePrompt = imagePrompt.substring(imagePrompt.toLowerCase().indexOf('/imagine')).trim();
+
+            // Clean up narration text: remove lines containing "word count", "wordcount", "words", tick marks, etc.
+            narration = narration.split('\n')
+                .map(line => line.trim())
+                .filter(line => {
+                    const l = line.toLowerCase();
+                    return !l.includes('word count') && !l.includes('wordcount') && !l.includes('words:') && !l.startsWith('✓') && !l.startsWith('word');
+                })
+                .join(' ')
+                .replace(/\*+/g, '') // remove markdown bold/italic asterisks
+                .replace(/[\[\(\{\s]*\d+\s*words?[\]\)\}\s]*/gi, '') // remove (9 words), [9 words], etc.
+                .trim();
+
+            // Clean up scenePrompt: remove confirmation, footer text, or markdown lines
+            const promptLines = scenePrompt.split('\n');
+            const cleanPromptLines = [];
+            for (const line of promptLines) {
+                const trimmed = line.trim();
+                const lower = trimmed.toLowerCase();
+                // Stop capturing if we hit confirmation keywords, empty lines after prompt, or dividers
+                if (lower.startsWith('**confirmation**') ||
+                    lower.startsWith('confirmation') ||
+                    lower.startsWith('ready to') ||
+                    lower.startsWith('- ') ||
+                    trimmed.startsWith('---') ||
+                    trimmed === '') {
+                    break;
+                }
+                cleanPromptLines.push(trimmed);
             }
-            
-            scenes.push({ number, narration, imagePrompt });
+            scenePrompt = cleanPromptLines.join(' ').replace(/\*+/g, '').replace(/`+/g, '').trim();
+
+            if (assetType === 'video') {
+                if (scenePrompt.toLowerCase().includes('generate a video of')) {
+                    scenePrompt = scenePrompt.substring(scenePrompt.toLowerCase().indexOf('generate a video of')).trim();
+                } else {
+                    // Try to match variations of generate a video
+                    const genIndex = scenePrompt.toLowerCase().indexOf('generate');
+                    if (genIndex !== -1) {
+                        scenePrompt = scenePrompt.substring(genIndex).trim();
+                    }
+                }
+                // Strict check: if not starting with "generate a video of", prepend it
+                if (!scenePrompt.toLowerCase().startsWith('generate a video of')) {
+                    scenePrompt = scenePrompt.replace(/^[^a-zA-Z]+/g, ''); // remove non-alpha chars like colons, slashes
+                    if (scenePrompt.toLowerCase().startsWith('video of')) {
+                        scenePrompt = 'generate a ' + scenePrompt;
+                    } else {
+                        scenePrompt = 'generate a video of ' + scenePrompt;
+                    }
+                }
+            } else {
+                const words = scenePrompt.split(/\s+/);
+                if (words.length > 0 && words[0].toLowerCase().includes('imagine')) {
+                    let restWords = words.slice(1);
+                    // Clean up common leakages from memory instructions
+                    if (restWords.length >= 2 && restWords[0].toLowerCase() === 'our' && restWords[1].toLowerCase() === 'chat') {
+                        restWords = restWords.slice(2);
+                    } else if (restWords.length >= 1 && restWords[0].toLowerCase() === 'chat') {
+                        restWords = restWords.slice(1);
+                    } else if (restWords.length >= 1 && restWords[0].toLowerCase() === 'our') {
+                        restWords = restWords.slice(1);
+                    }
+                    scenePrompt = `/imagine ` + restWords.join(' ');
+                } else if (!scenePrompt.toLowerCase().startsWith('/imagine')) {
+                    scenePrompt = `/imagine ${scenePrompt.replace(/^[^a-zA-Z]+/g, '')}`;
+                }
+            }
+
+            scenes.push({ number, narration, prompt: scenePrompt });
         }
 
         console.log(`Successfully parsed ${scenes.length} scenes.`);
@@ -604,12 +736,12 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         const voiceCode = getVoiceCode(language, voiceover);
         console.log(`Using Voice Code: ${voiceCode} for language: ${language}, voiceover: ${voiceover}`);
         statusText = "Generating scene voiceovers...";
-        
+
         for (const scene of scenes) {
             // Save narration text
             const narrationPath = path.join(outputDir, `scene_${scene.number}_narration.txt`);
             fs.writeFileSync(narrationPath, scene.narration, 'utf8');
-            
+
             // Generate audio
             const audioPath = path.join(outputDir, `scene_${scene.number}_audio.mp3`);
             await generateVoiceover(scene.narration, voiceCode, audioPath);
@@ -618,38 +750,47 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
             await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        console.log('\nStarting sequential image generation loop for parsed scenes...\n');
+        console.log(`\nStarting sequential ${assetType} generation loop for parsed scenes...\n`);
 
-        // Sequential Image Generation loop with retry capabilities
+        // Sequential Media Generation loop with retry capabilities
         for (const scene of scenes) {
-            statusText = `Generating image for Scene ${scene.number}/${scenes.length}...`;
+            statusText = `Generating ${assetType} for Scene ${scene.number}/${scenes.length}...`;
             console.log(`\n========================================`);
             console.log(`[SCENE ${scene.number}/${scenes.length}]`);
-            console.log(`Prompt: "${scene.imagePrompt}"`);
+            console.log(`Prompt: "${scene.prompt}"`);
             console.log(`========================================`);
 
-            let imageSaved = false;
-            let currentPrompt = scene.imagePrompt;
+            let mediaSaved = false;
+            let currentPrompt = scene.prompt;
+            if (assetType === 'video') {
+                if (!currentPrompt.toLowerCase().startsWith('generate a video of')) {
+                    currentPrompt = `generate a video of ${currentPrompt}`;
+                }
+            } else {
+                if (!currentPrompt.toLowerCase().startsWith('/imagine')) {
+                    currentPrompt = `/imagine ${currentPrompt}`;
+                }
+            }
 
             // Get the baseline message ID and time before the first attempt for this scene
             const currentMessages = await chat.fetchMessages({ limit: 5 });
-            const lastMsgIdBeforeImage = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].id.id : null;
-            const imageStartTime = Math.floor(Date.now() / 1000);
+            const lastMsgIdBeforeMedia = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].id.id : null;
+            const mediaStartTime = Math.floor(Date.now() / 1000);
 
             for (let attempt = 1; attempt <= 3; attempt++) {
-                console.log(`Attempt #${attempt} to generate image for Scene ${scene.number}...`);
-                
-                // Focus and write the image prompt
+                console.log(`Attempt #${attempt} to generate ${assetType} for Scene ${scene.number}...`);
+
+                // Focus and type the prompt like a human
                 await writeTextToInput(page, inputSelector, currentPrompt);
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 await page.keyboard.press('Enter');
 
                 console.log(`Prompt sent! Waiting for Meta AI response...`);
-                
-                // Image validator function to filter out text placeholders
-                const imageValidator = (msg, text) => {
+
+                // Media validator function to filter out text placeholders
+                const mediaValidator = (msg, text) => {
                     if (text && isGenerationFailed(text)) return true;
-                    
+
                     const rawData = msg.rawData || msg._data || {};
                     let hasDirectUrl = false;
                     if (rawData.unifiedResponse) {
@@ -658,35 +799,40 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                             if (ur.sections?.[0]?.view_model?.primitive?.media?.url) {
                                 hasDirectUrl = true;
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                     }
-                    return msg.hasMedia || hasDirectUrl || (text && text.toLowerCase().includes('your image is ready'));
+                    const readyKeyword = assetType === 'video' ? 'your video is ready' : 'your image is ready';
+                    return msg.hasMedia || hasDirectUrl || (text && text.toLowerCase().includes(readyKeyword));
                 };
 
-                const replyMsg = await pollNewMessage(chat, lastMsgIdBeforeImage, imageStartTime, imageValidator, 50000);
+                const replyMsg = await pollNewMessage(chat, lastMsgIdBeforeMedia, mediaStartTime, mediaValidator, 60000);
                 if (replyMsg) {
                     const text = getMessageText(replyMsg);
-                    
+
                     // Check if generation is blocked or failed
                     if (isGenerationFailed(text)) {
                         console.log(`Meta AI text reply reports issue: "${text.trim()}"`);
                         if (attempt < 3) {
                             console.log(`Attempt #${attempt} was blocked. Simplifying prompt and retrying...`);
-                            currentPrompt = `/imagine a beautiful illustration related to ${topic}, high quality, highly detailed, aspect ratio ${aspect_ratio}`;
+                            if (assetType === 'video') {
+                                currentPrompt = `generate a video of a beautiful landscape related to ${topic}, aspect ratio ${aspect_ratio}`;
+                            } else {
+                                currentPrompt = `/imagine a beautiful landscape related to ${topic}, aspect ratio ${aspect_ratio}`;
+                            }
                             continue;
                         }
                         break;
                     }
 
-                    // Poll for up to 15 seconds to wait for image media download to settle
+                    // Poll for up to 20 seconds to wait for media download to settle
                     let downloadSuccess = false;
                     console.log('Waiting for media payload to settle/download...');
-                    for (let waitIdx = 0; waitIdx < 8; waitIdx++) {
+                    for (let waitIdx = 0; waitIdx < 10; waitIdx++) {
                         const messages = await chat.fetchMessages({ limit: 5 });
                         const refreshedMsg = messages.find(m => m.id.id === replyMsg.id.id);
                         if (refreshedMsg) {
                             let mediaUrl = null;
-                            let mimeType = 'image/jpeg';
+                            let mimeType = assetType === 'video' ? 'video/mp4' : 'image/jpeg';
                             const rawData = refreshedMsg.rawData || refreshedMsg._data || {};
                             if (rawData.unifiedResponse) {
                                 try {
@@ -694,38 +840,65 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                                     const media = ur.sections?.[0]?.view_model?.primitive?.media;
                                     if (media && media.url) {
                                         mediaUrl = media.url;
-                                        mimeType = media.mime_type || media.mimetype || 'image/jpeg';
+                                        mimeType = media.mime_type || media.mimetype || (assetType === 'video' ? 'video/mp4' : 'image/jpeg');
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
                             }
 
                             if (mediaUrl || refreshedMsg.hasMedia) {
-                                const ext = mimeType.split('/')[1] || 'jpeg';
-                                const imgPath = path.join(outputDir, `scene_${scene.number}_image.${ext}`);
-                                
+                                const ext = mimeType.split('/')[1] || (assetType === 'video' ? 'mp4' : 'jpeg');
+                                const sceneMediaPath = path.join(outputDir, `scene_${scene.number}_asset.${ext}`);
+
                                 try {
                                     if (mediaUrl) {
                                         try {
-                                            await downloadUrl(mediaUrl, imgPath);
+                                            await downloadUrl(mediaUrl, sceneMediaPath);
                                             downloadSuccess = true;
-                                            console.log(`SUCCESS: Image saved via direct URL download to: ${imgPath}`);
+                                            console.log(`SUCCESS: Asset saved via direct URL download to: ${sceneMediaPath}`);
                                         } catch (dlErr) {
                                             console.warn(`WARNING: Direct URL download failed (${dlErr.message || dlErr}). Trying fallback downloadMedia()...`);
                                         }
                                     }
-                                    
+
                                     if (!downloadSuccess) {
                                         const mediaData = await refreshedMsg.downloadMedia();
                                         if (mediaData && mediaData.data) {
-                                            fs.writeFileSync(imgPath, Buffer.from(mediaData.data, 'base64'));
+                                            mimeType = mediaData.mimetype || mimeType; // Update mimeType from mediaData
+                                            fs.writeFileSync(sceneMediaPath, Buffer.from(mediaData.data, 'base64'));
                                             downloadSuccess = true;
-                                            console.log(`SUCCESS: Image saved via downloadMedia() to: ${imgPath}`);
+                                            console.log(`SUCCESS: Asset saved via downloadMedia() to: ${sceneMediaPath}`);
                                         } else {
                                             console.warn(`WARNING: downloadMedia() returned empty data for Scene ${scene.number}.`);
                                         }
                                     }
+
+                                    // Verify that the media is of expected type (image vs video)
+                                    if (downloadSuccess) {
+                                        const expectedTypePrefix = assetType === 'video' ? 'video/' : 'image/';
+                                        if (mimeType.toLowerCase().startsWith(expectedTypePrefix)) {
+                                            // Verify file exists and is larger than 10KB
+                                            if (fs.existsSync(sceneMediaPath)) {
+                                                const stats = fs.statSync(sceneMediaPath);
+                                                if (stats.size > 10240) { // 10KB
+                                                    console.log(`SUCCESS: Asset verified (mime: ${mimeType}, size: ${stats.size} bytes)`);
+                                                } else {
+                                                    console.warn(`WARNING: Downloaded asset file is too small (${stats.size} bytes). Rejecting and retrying...`);
+                                                    downloadSuccess = false;
+                                                    try { fs.unlinkSync(sceneMediaPath); } catch (e) { }
+                                                }
+                                            } else {
+                                                console.warn(`WARNING: Asset file not found after download.`);
+                                                downloadSuccess = false;
+                                            }
+                                        } else {
+                                            console.warn(`WARNING: Media is not of expected type ${expectedTypePrefix} (mime_type: ${mimeType}). Rejecting and retrying...`);
+                                            downloadSuccess = false;
+                                            try { fs.unlinkSync(sceneMediaPath); } catch (e) { }
+                                        }
+                                    }
                                 } catch (mediaErr) {
                                     console.warn(`WARNING: Media download failed for Scene ${scene.number}:`, mediaErr.message || mediaErr);
+                                    downloadSuccess = false;
                                 }
                                 break;
                             }
@@ -734,7 +907,7 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                     }
 
                     if (downloadSuccess) {
-                        imageSaved = true;
+                        mediaSaved = true;
                         break; // Exit attempt loop on success
                     }
                 }
@@ -742,12 +915,12 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                 // If attempt timed out, simplify or send retry command
                 if (attempt < 3) {
                     console.log(`Attempt #${attempt} timed out. Sending a direct 'retry' keyword command...`);
-                    currentPrompt = 'retry';
+                    currentPrompt = 'retry with polished new updated prompt or make a new updated prompt for the video and then retry again';
                 }
             }
 
-            if (!imageSaved) {
-                console.warn(`WARNING: Failed to generate image for Scene ${scene.number} after 3 attempts.`);
+            if (!mediaSaved) {
+                console.warn(`WARNING: Failed to generate asset for Scene ${scene.number} after 3 attempts.`);
             }
         }
 
@@ -756,7 +929,7 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         console.log(`Assets folder: ${outputDir}`);
         console.log(`========================================\n`);
 
-        console.log('Starting FFmpeg compilation to merge audios and images into a final video...');
+        console.log(`Starting FFmpeg compilation to merge audios and ${assetType}s into a final video...`);
         statusText = "Compiling final video...";
 
         const segments = [];
@@ -772,15 +945,15 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         const files = fs.readdirSync(outputDir);
 
         for (const scene of scenes) {
-            const imgFile = files.find(f => f.startsWith(`scene_${scene.number}_image.`));
+            const assetFile = files.find(f => f.startsWith(`scene_${scene.number}_asset.`));
             const audioFile = `scene_${scene.number}_audio.mp3`;
 
-            if (!imgFile) {
-                console.warn(`WARNING: Missing image for Scene ${scene.number}, skipping segment compilation.`);
+            if (!assetFile) {
+                console.warn(`WARNING: Missing asset for Scene ${scene.number}, skipping segment compilation.`);
                 continue;
             }
 
-            const imgPath = path.join(outputDir, imgFile);
+            const sceneMediaPath = path.join(outputDir, assetFile);
             const audioPath = path.join(outputDir, audioFile);
 
             if (!fs.existsSync(audioPath)) {
@@ -817,24 +990,35 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
             const segmentFile = `scene_${scene.number}_temp.mp4`;
             const segmentPath = path.join(outputDir, segmentFile);
 
-            // Automatically rotate zoom/pan effects and directions scene-by-scene
-            const effectsList = ['zoom', 'pan', 'zoomout', 'panzoom', 'panzoomout'];
-            const directionsList = ['left', 'top', 'right', 'bottom'];
-            
-            const effect = effectsList[(scene.number - 1) % effectsList.length];
-            const direction = directionsList[(scene.number - 1) % directionsList.length];
-            
-            const totalFrames = Math.ceil(duration * 25);
-            let videoFilter = getZoompanFilter(effect, direction, totalFrames, width, height);
-            let audioFilter = ``;
+            if (assetType === 'video') {
+                try {
+                    // Loop the video infinitely and merge it with the audio, cropping it to target resolution
+                    const cmd = `ffmpeg -y -stream_loop -1 -i "${sceneMediaPath}" -i "${activeAudioPath}" -vf "scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}" -c:v libx264 -pix_fmt yuv420p -c:a aac -t ${duration.toFixed(2)} "${segmentPath}"`;
+                    console.log(`Compiling Segment ${scene.number}/${scenes.length} (${duration.toFixed(2)}s)...`);
+                    execSync(cmd, { stdio: 'ignore' });
+                    segments.push(segmentPath);
+                } catch (e) {
+                    console.error(`ERROR: Failed to compile segment for Scene ${scene.number}:`, e.message);
+                }
+            } else {
+                // Image to Video Zoompan animation
+                const effectsList = ['zoom', 'pan', 'zoomout', 'panzoom', 'panzoomout'];
+                const directionsList = ['left', 'top', 'right', 'bottom'];
 
-            try {
-                const cmd = `ffmpeg -y -loop 1 -framerate 25 -i "${imgPath}" -i "${activeAudioPath}" -vf "${videoFilter}" ${audioFilter} -c:v libx264 -pix_fmt yuv420p -c:a aac -t ${duration.toFixed(2)} "${segmentPath}"`;
-                console.log(`Compiling Segment ${scene.number}/${scenes.length} (${duration.toFixed(2)}s) with effect: ${effect} (${direction})...`);
-                execSync(cmd, { stdio: 'ignore' });
-                segments.push(segmentPath);
-            } catch (e) {
-                console.error(`ERROR: Failed to compile segment for Scene ${scene.number}:`, e.message);
+                const effect = effectsList[(scene.number - 1) % effectsList.length];
+                const direction = directionsList[(scene.number - 1) % directionsList.length];
+
+                const totalFrames = Math.ceil(duration * 25);
+                let videoFilter = getZoompanFilter(effect, direction, totalFrames, width, height);
+
+                try {
+                    const cmd = `ffmpeg -y -loop 1 -framerate 25 -i "${sceneMediaPath}" -i "${activeAudioPath}" -vf "${videoFilter}" -c:v libx264 -pix_fmt yuv420p -c:a aac -t ${duration.toFixed(2)} "${segmentPath}"`;
+                    console.log(`Compiling Segment ${scene.number}/${scenes.length} (${duration.toFixed(2)}s) with effect: ${effect} (${direction})...`);
+                    execSync(cmd, { stdio: 'ignore' });
+                    segments.push(segmentPath);
+                } catch (e) {
+                    console.error(`ERROR: Failed to compile segment for Scene ${scene.number}:`, e.message);
+                }
             }
         }
 
@@ -857,9 +1041,9 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
 
             // Cleanup temp segment files
             for (const segmentPath of segments) {
-                try { fs.unlinkSync(segmentPath); } catch (e) {}
+                try { fs.unlinkSync(segmentPath); } catch (e) { }
             }
-            try { fs.unlinkSync(listFilePath); } catch (e) {}
+            try { fs.unlinkSync(listFilePath); } catch (e) { }
         } else {
             console.error('ERROR: No video segments compiled successfully.');
             statusText = "Pipeline completed with segment errors";
@@ -877,13 +1061,13 @@ const http = require('http');
 const server = http.createServer(async (req, res) => {
     try {
         const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-        
+
         if (req.method === 'GET' && url.pathname === '/') {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
             return;
         }
-        
+
         if (req.method === 'GET' && url.pathname === '/api/screenshot') {
             const screenshotPath = path.join(__dirname, 'live_status.png');
             if (fs.existsSync(screenshotPath)) {
@@ -895,7 +1079,7 @@ const server = http.createServer(async (req, res) => {
             }
             return;
         }
-        
+
         if (req.method === 'GET' && url.pathname === '/api/download') {
             const folder = url.searchParams.get('folder');
             const file = url.searchParams.get('file');
@@ -910,7 +1094,7 @@ const server = http.createServer(async (req, res) => {
                 if (file.endsWith('.mp4')) contentType = 'video/mp4';
                 else if (file.endsWith('.mp3')) contentType = 'audio/mpeg';
                 else if (file.endsWith('.jpeg') || file.endsWith('.jpg')) contentType = 'image/jpeg';
-                
+
                 res.writeHead(200, { 'Content-Type': contentType });
                 res.end(fs.readFileSync(filePath));
             } else {
@@ -945,7 +1129,7 @@ const server = http.createServer(async (req, res) => {
             isClientReady = false;
             currentQrText = null;
             statusText = "Logging out...";
-            
+
             try {
                 if (client) {
                     await client.logout();
@@ -954,16 +1138,16 @@ const server = http.createServer(async (req, res) => {
             } catch (e) {
                 console.error('Error during logout/destroy:', e);
             }
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: 'Logged out successfully. Re-initializing...' }));
-            
+
             setTimeout(() => {
                 bootClient();
             }, 2000);
             return;
         }
-        
+
         if (req.method === 'GET' && url.pathname === '/api/logs') {
             const startIndex = parseInt(url.searchParams.get('startIndex') || '0');
             let lines = [];
@@ -971,12 +1155,12 @@ const server = http.createServer(async (req, res) => {
                 const rawContent = fs.readFileSync(logFile, 'utf8');
                 lines = rawContent.split('\n').filter(l => l.trim() !== '');
             }
-            
+
             const requestedLogs = lines.slice(startIndex).map((text, idx) => ({
                 index: startIndex + idx,
                 text: text
             }));
-            
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 logs: requestedLogs,
@@ -984,7 +1168,7 @@ const server = http.createServer(async (req, res) => {
             }));
             return;
         }
-        
+
         if (req.method === 'POST' && url.pathname === '/api/generate') {
             if (!isClientReady) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -996,7 +1180,7 @@ const server = http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ success: false, message: 'Generation is already in progress.' }));
                 return;
             }
-            
+
             let body = '';
             req.on('data', chunk => body += chunk);
             req.on('end', () => {
@@ -1007,12 +1191,12 @@ const server = http.createServer(async (req, res) => {
                         res.end(JSON.stringify({ success: false, message: 'Topic is required.' }));
                         return;
                     }
-                    
+
                     // Trigger asynchronously
                     runGenerationPipeline(params).catch(err => {
                         console.error('Asynchronous pipeline execution failed:', err);
                     });
-                    
+
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ success: true, message: 'Generation pipeline triggered.' }));
                 } catch (err) {
@@ -1022,7 +1206,7 @@ const server = http.createServer(async (req, res) => {
             });
             return;
         }
-        
+
         res.writeHead(404);
         res.end('Not Found');
     } catch (err) {
@@ -1059,13 +1243,42 @@ function getPuppeteerArgs() {
     return baseArgs;
 }
 
+function cleanSessionLocks() {
+    const authDir = path.join(__dirname, '.wwebjs_auth');
+    if (!fs.existsSync(authDir)) return;
+
+    function deleteLocks(dir) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+            const fullPath = path.join(dir, file);
+            const stat = fs.statSync(fullPath);
+            if (stat.isDirectory()) {
+                deleteLocks(fullPath);
+            } else if (file === 'SingletonLock' || file === 'LOCK') {
+                try {
+                    fs.unlinkSync(fullPath);
+                    console.log(`Deleted lock file: ${fullPath}`);
+                } catch (e) {
+                    // Ignore if locked by a running process
+                }
+            }
+        }
+    }
+    try {
+        deleteLocks(authDir);
+    } catch (e) {
+        console.warn('Warning: Error cleaning session locks:', e.message);
+    }
+}
+
 function bootClient() {
+    cleanSessionLocks();
     const mongoUri = process.env.MONGO_URI;
     if (mongoUri) {
         console.log('MONGO_URI found. Configuring RemoteAuth with MongoDB...');
         const mongoose = require('mongoose');
         const { MongoStore } = require('wwebjs-mongo');
-        
+
         // Connect to MongoDB if not already connected
         if (mongoose.connection.readyState === 0) {
             mongoose.connect(mongoUri).then(() => {
@@ -1096,17 +1309,18 @@ function initializeClientWithRemoteAuth(store) {
         puppeteer: {
             headless: true,
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            args: getPuppeteerArgs()
+            args: getPuppeteerArgs(),
+            defaultViewport: null
         }
     });
-    
+
     registerClientEvents(client);
     client.initialize().catch(err => {
         console.error('ERROR: Remote client initialization failed:', err);
         isClientReady = false;
         currentQrText = null;
         statusText = "Connection timed out. Retrying...";
-        try { client.destroy(); } catch(e) {}
+        try { client.destroy(); } catch (e) { }
         setTimeout(() => {
             bootClient();
         }, 5000);
@@ -1120,22 +1334,46 @@ function initLocalClient() {
         puppeteer: {
             headless: true,
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            args: getPuppeteerArgs()
+            args: getPuppeteerArgs(),
+            defaultViewport: null
         }
     });
-    
+
     registerClientEvents(client);
     client.initialize().catch(err => {
         console.error('ERROR: Local client initialization failed:', err);
         isClientReady = false;
         currentQrText = null;
         statusText = "Connection timed out. Retrying...";
-        try { client.destroy(); } catch(e) {}
+        try { client.destroy(); } catch (e) { }
         setTimeout(() => {
             bootClient();
         }, 5000);
     });
 }
+
+// Watchdog interval to resolve ready event hangs on 100% loading
+setInterval(async () => {
+    if (client && client.pupPage && !isClientReady) {
+        try {
+            const triggered = await client.pupPage.evaluate(() => {
+                try {
+                    const Socket = window.require('WAWebSocketModel')?.Socket;
+                    if (Socket && Socket.hasSynced && typeof window.onAppStateHasSyncedEvent === 'function') {
+                        window.onAppStateHasSyncedEvent();
+                        return true;
+                    }
+                } catch (e) { }
+                return false;
+            });
+            if (triggered) {
+                console.log('Watchdog: Force-triggered app state sync ready sequence.');
+            }
+        } catch (e) {
+            // Ignore evaluate errors during early navigation
+        }
+    }
+}, 3000);
 
 // Start client on boot
 bootClient();
