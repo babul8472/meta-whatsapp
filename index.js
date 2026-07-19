@@ -265,6 +265,70 @@ function extractMetaAISuggestion(text) {
     return null;
 }
 
+// Clear Meta AI chat history via context menu right-click
+async function clearMetaAIChat(page) {
+    console.log('Initiating programmatic chat clearing for Meta AI...');
+    try {
+        const spanHandle = await page.evaluateHandle(() => {
+            const spans = Array.from(document.querySelectorAll('span'));
+            return spans.find(s => s.textContent.trim() === 'Meta AI' || s.getAttribute('title') === 'Meta AI') || null;
+        });
+
+        const spanEl = spanHandle.asElement();
+        if (!spanEl) {
+            console.warn('WARNING: Meta AI text span not found for right-clicking.');
+            return;
+        }
+
+        await spanEl.click({ button: 'right' });
+        await new Promise(r => setTimeout(r, 2000));
+
+        const clickedOption = await page.evaluate(() => {
+            const spans = Array.from(document.querySelectorAll('span'));
+            const clearSpan = spans.find(s => s.textContent.trim().toLowerCase() === 'clear chat');
+            const clearBtn = clearSpan ? clearSpan.closest('button') : null;
+            if (clearBtn) {
+                clearBtn.click();
+                return true;
+            }
+            return false;
+        });
+
+        if (!clickedOption) {
+            console.warn('WARNING: Could not find "Clear chat" option in context menu.');
+            return;
+        }
+
+        await new Promise(r => setTimeout(r, 2000));
+
+        const confirmed = await page.evaluate(() => {
+            const dialog = document.querySelector('div[role="dialog"]');
+            if (dialog) {
+                const spans = Array.from(dialog.querySelectorAll('span, button'));
+                const confirmSpan = spans.find(s => {
+                    const text = s.textContent.trim().toLowerCase();
+                    return text === 'clear chat' || text === 'clear';
+                });
+                const confirmBtn = confirmSpan ? (confirmSpan.tagName === 'BUTTON' ? confirmSpan : confirmSpan.closest('button')) : null;
+                if (confirmBtn) {
+                    confirmBtn.click();
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        if (confirmed) {
+            console.log('SUCCESS: Meta AI chat history cleared successfully.');
+            await new Promise(r => setTimeout(r, 3000));
+        } else {
+            console.warn('WARNING: Confirmation dialog not found or not clicked.');
+        }
+    } catch (e) {
+        console.warn('WARNING: Error clearing chat:', e.message || e);
+    }
+}
+
 // Helper to write text into the chat compose field with simulated human typing
 async function writeTextToInput(page, selector, text) {
     await page.waitForSelector(selector);
@@ -760,6 +824,9 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         console.log('Clicking Meta AI row...');
         await metaAiElement2.click();
         await new Promise(resolve => setTimeout(resolve, 4000));
+
+        // Programmatically clear the Meta AI chat history to ensure a clean slate
+        await clearMetaAIChat(page);
 
         console.log('Sending /reset-ai to Meta AI to start a new chat session...');
         try {
