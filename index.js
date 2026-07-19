@@ -255,6 +255,16 @@ function isGenerationFailed(text) {
         lower.includes("error");
 }
 
+// Extract safe suggestion prompt from Meta AI block responses
+function extractMetaAISuggestion(text) {
+    const cleanText = text.replace(/(\w)['’](\w)/g, '$1$2');
+    const match = cleanText.match(/['"“]([^'"“”]{15,})['"”]/);
+    if (match && match[1]) {
+        return match[1].trim();
+    }
+    return null;
+}
+
 // Helper to write text into the chat compose field with simulated human typing
 async function writeTextToInput(page, selector, text) {
     await page.waitForSelector(selector);
@@ -982,7 +992,7 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                     return msg.hasMedia;
                 };
 
-                const replyMsg = await pollNewMessage(page, initialMsgCount, mediaStartTime, mediaValidator, 90000);
+                const replyMsg = await pollNewMessage(page, initialMsgCount, mediaStartTime, mediaValidator, 120000);
                 if (replyMsg) {
                     const text = replyMsg.text || '';
 
@@ -990,11 +1000,17 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                     if (isGenerationFailed(text)) {
                         console.log(`Meta AI text reply reports issue: "${text.trim()}"`);
                         if (attempt < 3) {
-                            console.log(`Attempt #${attempt} was blocked. Simplifying prompt and retrying...`);
-                            if (assetType === 'video') {
-                                currentPrompt = `generate a video of a beautiful landscape related to ${topic}, aspect ratio ${aspect_ratio}`;
+                            const suggestedPrompt = extractMetaAISuggestion(text);
+                            if (suggestedPrompt) {
+                                console.log(`Attempt #${attempt} was blocked. Retrying with Meta AI's safe suggestion: "${suggestedPrompt}"`);
+                                currentPrompt = suggestedPrompt;
                             } else {
-                                currentPrompt = `/imagine a beautiful landscape related to ${topic}, aspect ratio ${aspect_ratio}`;
+                                console.log(`Attempt #${attempt} was blocked. No suggestion parsed. Simplifying to generic prompt...`);
+                                if (assetType === 'video') {
+                                    currentPrompt = `generate a video of a beautiful landscape related to ${topic}, aspect ratio ${aspect_ratio}`;
+                                } else {
+                                    currentPrompt = `/imagine a beautiful landscape related to ${topic}, aspect ratio ${aspect_ratio}`;
+                                }
                             }
                             continue;
                         }
