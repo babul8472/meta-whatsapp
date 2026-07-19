@@ -8,23 +8,36 @@ try { fs.writeFileSync(logFile, '', 'utf8'); } catch (e) { }
 const originalLog = console.log;
 console.log = function (...args) {
     originalLog.apply(console, args);
-    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ') + '\n';
+    const msg = args.map(a => {
+        if (a instanceof Error) return a.stack || a.message;
+        return typeof a === 'object' ? JSON.stringify(a) : a;
+    }).join(' ') + '\n';
     try { fs.appendFileSync(logFile, msg, 'utf8'); } catch (e) { }
 };
 const originalError = console.error;
 console.error = function (...args) {
     originalError.apply(console, args);
-    const msg = '[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(' ') + '\n';
+    const msg = '[ERROR] ' + args.map(a => {
+        if (a instanceof Error) return a.stack || a.message;
+        return typeof a === 'object' ? JSON.stringify(a) : a;
+    }).join(' ') + '\n';
     try { fs.appendFileSync(logFile, msg, 'utf8'); } catch (e) { }
 };
 
 // Register global error handlers to capture unhandled async crashes
 process.on('unhandledRejection', (reason, promise) => {
     console.error('GLOBAL UNHANDLED REJECTION:', reason);
+    if (reason && reason.stack) {
+        console.error(reason.stack);
+    }
 });
 
 process.on('uncaughtException', (err) => {
     console.error('GLOBAL UNCAUGHT EXCEPTION:', err);
+    if (err && err.stack) {
+        console.error(err.stack);
+    }
+    process.exit(1);
 });
 
 console.log('Script started. Initializing client in HEADLESS mode...');
@@ -238,6 +251,7 @@ function isGenerationFailed(text) {
         lower.includes("policy") ||
         lower.includes("violation") ||
         lower.includes("unable") ||
+        lower.includes("fail") ||
         lower.includes("error");
 }
 
@@ -277,37 +291,186 @@ async function writeTextToInput(page, selector, text) {
     }
 }
 
-// Poll helper that checks for a NEW message from Meta AI after a baseline message ID, validating its content via validatorFn
-async function pollNewMessage(chat, lastMsgId, promptStartTime, validatorFn, maxTimeoutMs = 60000) {
+async function getMessageCount(page) {
+    try {
+        return await page.evaluate(() => {
+            return document.querySelectorAll('[data-testid="msg-container"], .message-in, .message-out').length;
+        });
+    } catch (e) {
+        console.warn('Warning: Failed to get message count:', e.message);
+        return 0;
+    }
+}
+
+async function getLastMessageText(page) {
+    try {
+        return await page.evaluate(() => {
+            const msgNodes = Array.from(document.querySelectorAll('[data-testid="msg-container"], .message-in, .message-out'));
+            if (msgNodes.length === 0) return '';
+            const lastNode = msgNodes[msgNodes.length - 1];
+            const copyableText = lastNode.querySelector('.copyable-text');
+            return copyableText ? copyableText.textContent.trim() : lastNode.textContent.trim();
+        });
+    } catch (e) {
+        console.warn('Warning: Failed to get last message text:', e.message);
+        return '';
+    }
+}
+
+// Poll helper that checks for a NEW message from Meta AI after a baseline message ID, prioritizing media-containing bubbles
+async function pollNewMessage(page, initialMsgCount, promptStartTime, validatorFn, maxTimeoutMs = 60000) {
     const startTime = Date.now();
+    console.log(`[POLLING] Starting poll. maxTimeoutMs=${maxTimeoutMs}`);
     while (Date.now() - startTime < maxTimeoutMs) {
         await new Promise(resolve => setTimeout(resolve, 4000));
         try {
-            const messages = await chat.fetchMessages({ limit: 20 });
-            let newMessages = messages;
-            if (lastMsgId) {
-                const lastIdx = messages.findIndex(m => m.id.id === lastMsgId);
-                if (lastIdx !== -1) {
-                    newMessages = messages.slice(lastIdx + 1);
-                } else {
-                    newMessages = messages.filter(m => m.timestamp >= promptStartTime - 60);
+            const result = await page.evaluate(() => {
+                const messageList = document.querySelector('[data-testid="conversation-panel-messages"]') || document.querySelector('.copyable-area');
+                const listRect = messageList ? messageList.getBoundingClientRect() : null;
+
+                const isIncomingLayout = (node) => {
+                    if (!listRect) return true; // fallback
+                    const nodeRect = node.getBoundingClientRect();
+                    const relativeLeft = nodeRect.left - listRect.left;
+                    // Outgoing messages are aligned right, starting > 25% of list width.
+                    // Incoming messages start on the left, < 25% of list width.
+                    return relativeLeft < (listRect.width * 0.25);
+                };
+
+                const msgNodes = Array.from(document.querySelectorAll('[data-testid="msg-container"], .message-in, .message-out'));
+                
+                // Find the latest outgoing message dynamically in the current DOM
+                let lastOutgoingIndex = -1;
+                for (let i = msgNodes.length - 1; i >= 0; i--) {
+                    const node = msgNodes[i];
+                    const isOutgoing = node.classList.contains('message-out') || 
+                                     node.textContent.startsWith('tail-out') ||
+                                     node.closest('[data-id]')?.getAttribute('data-id')?.includes('true_') ||
+                                     !!node.querySelector('[class*="tail-out"]') ||
+                                     !isIncomingLayout(node);
+                    if (isOutgoing) {
+                        lastOutgoingIndex = i;
+                        break;
+                    }
+                }
+                
+                // Slice from the last outgoing message dynamically
+                const newNodes = lastOutgoingIndex !== -1 ? msgNodes.slice(lastOutgoingIndex + 1) : msgNodes;
+                
+                // Collect all incoming replies in the new nodes
+                const incomingReplies = [];
+                for (let i = 0; i < newNodes.length; i++) {
+                    const node = newNodes[i];
+                    const isIncoming = node.classList.contains('message-in') || 
+                                     node.textContent.startsWith('tail-in') ||
+                                     node.closest('[data-id]')?.getAttribute('data-id')?.includes('false_') ||
+                                     !!node.querySelector('[class*="tail-in"]') ||
+                                     isIncomingLayout(node);
+                    if (isIncoming) {
+                        const absoluteIndex = (lastOutgoingIndex !== -1 ? lastOutgoingIndex + 1 : 0) + i;
+                        incomingReplies.push({ node, index: absoluteIndex });
+                    }
+                }
+                
+                if (incomingReplies.length > 0) {
+                    // Search for any reply that contains loaded media
+                    let targetReply = null;
+                    let targetMediaUrl = null;
+                    let targetMimeType = null;
+                    
+                    for (const reply of incomingReplies) {
+                        const img = reply.node.querySelector('img');
+                        const video = reply.node.querySelector('video');
+                        
+                        // Check for video first
+                        if (video && video.getAttribute('src')) {
+                            targetReply = reply;
+                            targetMediaUrl = video.getAttribute('src');
+                            targetMimeType = 'video/mp4';
+                            break;
+                        }
+                        
+                        // Check for img (excluding emojis)
+                        if (img) {
+                            const isEmoji = img.classList.contains('emoji') || 
+                                            img.classList.contains('wa-emoji') || 
+                                            (img.getAttribute('alt') && img.getAttribute('alt').length <= 2) ||
+                                            img.getAttribute('src')?.includes('emoji') ||
+                                            (img.getBoundingClientRect().width < 50);
+                            if (!isEmoji && img.getAttribute('src')) {
+                                targetReply = reply;
+                                targetMediaUrl = img.getAttribute('src');
+                                targetMimeType = 'image/jpeg';
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Fallback to the latest incoming reply if no media is rendered yet
+                    if (!targetReply) {
+                        targetReply = incomingReplies[incomingReplies.length - 1];
+                    }
+                    
+                    const copyableText = targetReply.node.querySelector('.copyable-text');
+                    const text = copyableText ? copyableText.textContent.trim() : targetReply.node.textContent.trim();
+                    
+                    return {
+                        text,
+                        mediaUrl: targetMediaUrl,
+                        mimeType: targetMimeType,
+                        found: true,
+                        debug: {
+                            totalCount: msgNodes.length,
+                            lastOutgoingIndex: lastOutgoingIndex,
+                            newNodesCount: newNodes.length,
+                            replyNodeIndex: targetReply.index
+                        }
+                    };
+                }
+                
+                return {
+                    found: false,
+                    debug: {
+                        totalCount: msgNodes.length,
+                        lastOutgoingIndex: lastOutgoingIndex,
+                        newNodesCount: newNodes.length
+                    }
+                };
+            });
+            
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            if (result && result.found) {
+                const mockMsg = {
+                    hasMedia: !!result.mediaUrl,
+                    _data: {},
+                    rawData: {
+                        unifiedResponse: result.mediaUrl ? JSON.stringify({
+                            sections: [{
+                                view_model: {
+                                    primitive: {
+                                        media: {
+                                            url: result.mediaUrl,
+                                            mime_type: result.mimeType
+                                        }
+                                    }
+                                }
+                            }]
+                        }) : null
+                    }
+                };
+                const isValid = validatorFn(mockMsg, result.text);
+                console.log(`[POLLING] (${elapsed}s) Found reply at DOM index ${result.debug.replyNodeIndex} (text length: ${result.text.length}). isValid: ${isValid}, mediaUrl: ${result.mediaUrl}`);
+                if (isValid) {
+                    return mockMsg;
                 }
             } else {
-                newMessages = messages.filter(m => m.timestamp >= promptStartTime - 60);
-            }
-
-            // Look for the latest incoming message from Meta AI in the new messages
-            const replyMsg = newMessages.slice().reverse().find(m => !m.fromMe);
-            if (replyMsg) {
-                const text = getMessageText(replyMsg);
-                if (validatorFn(replyMsg, text)) {
-                    return replyMsg;
-                }
+                console.log(`[POLLING] (${elapsed}s) No incoming reply found yet after last outgoing index ${result ? result.debug.lastOutgoingIndex : '?'}. totalDOMCount: ${result ? result.debug.totalCount : '?'}, newNodesCount: ${result ? result.debug.newNodesCount : '?'}`);
             }
         } catch (e) {
             console.error('Error in pollNewMessage:', e);
         }
     }
+    console.log(`[POLLING] Poll timed out after ${Math.round((Date.now() - startTime) / 1000)}s`);
     return null;
 }
 
@@ -568,27 +731,38 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         console.log(`Writing unified script generation prompt to text field (expecting exactly ${totalScenes} scenes)...`);
         statusText = `Generating ${totalScenes}-scene script...`;
 
-        // Find the baseline chat and message ID before sending
-        const chats = await client.getChats();
-        const chat = chats.find(c => c.id._serialized === '13135550002@c.us');
-        if (!chat) {
+        console.log('Locating Meta AI row in sidebar...');
+        statusText = "Connecting to Meta AI...";
+        const metaAiHandle2 = await page.evaluateHandle(() => {
+            const spans = Array.from(document.querySelectorAll('span'));
+            const span = spans.find(s => s.textContent.trim() === 'Meta AI' || s.getAttribute('title') === 'Meta AI');
+            return span ? (span.closest('div[role="row"]') || span.closest('div[data-testid^="list-item-"]') || span) : null;
+        });
+
+        const metaAiElement2 = metaAiHandle2.asElement();
+        if (!metaAiElement2) {
             console.error('Meta AI chat not found.');
             isGenerating = false;
             statusText = "Error: Meta AI chat not found";
             return;
         }
 
+        console.log('Clicking Meta AI row...');
+        await metaAiElement2.click();
+        await new Promise(resolve => setTimeout(resolve, 4000));
+
         console.log('Sending /reset-ai to Meta AI to start a new chat session...');
         try {
-            await client.sendMessage('13135550002@c.us', '/reset-ai');
+            await writeTextToInput(page, inputSelector, '/reset-ai');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await page.keyboard.press('Enter');
             console.log('SUCCESS: /reset-ai command sent.');
             await new Promise(resolve => setTimeout(resolve, 4000));
         } catch (resetErr) {
             console.warn('WARNING: Failed to send /reset-ai command:', resetErr.message || resetErr);
         }
 
-        const initialMessages = await chat.fetchMessages({ limit: 5 });
-        const lastMsgIdBeforeScript = initialMessages.length > 0 ? initialMessages[initialMessages.length - 1].id.id : null;
+        const initialMsgCount = await getMessageCount(page);
         const promptStartTime = Math.floor(Date.now() / 1000);
 
         await writeTextToInput(page, inputSelector, scriptPrompt);
@@ -610,16 +784,14 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
             return lower.includes('scene 1') && lower.includes(`scene ${totalScenes}`);
         };
 
-        const replyMsg = await pollNewMessage(chat, lastMsgIdBeforeScript, promptStartTime, scriptValidator, 120000);
+        const replyMsg = await pollNewMessage(page, initialMsgCount, promptStartTime, scriptValidator, 300000);
         if (replyMsg) {
             // Wait an extra 6 seconds for the streamed text to fully settle/finish writing
             console.log('Waiting 6 seconds for script stream to fully settle...');
             await new Promise(resolve => setTimeout(resolve, 6000));
 
-            // Fetch messages again to get the final complete text
-            const messages = await chat.fetchMessages({ limit: 5 });
-            const finalMsg = messages.find(m => m.id.id === replyMsg.id.id) || replyMsg;
-            const text = getMessageText(finalMsg);
+            // Get final settled text from DOM
+            const text = await getLastMessageText(page);
             if (text && !isGenerationFailed(text)) {
                 scriptText = text;
                 scriptSuccess = true;
@@ -636,6 +808,13 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
         console.log('\n--- SCRIPT RECEIVED ---');
         console.log(scriptText);
         console.log('-----------------------\n');
+
+        // Pre-process scriptText to fix spacing/newline formatting issues caused by textContent concatenation
+        scriptText = scriptText
+            .replace(/(\S)(Scene\s+\d+)/gi, '$1\n$2')
+            .replace(/(\S)(Narration\s*:)/gi, '$1\n$2')
+            .replace(/(\S)(Video\s+Prompt\s*:)/gi, '$1\n$2')
+            .replace(/(\S)(Image\s+Prompt\s*:)/gi, '$1\n$2');
 
         // Parse scenes using regex (handling optional markdown bold asterisks and supporting Video or Image prompt keywords)
         const sceneRegex = /(?:\*\*|\b)Scene\s+(\d+)[\s\S]*?Narration\s*\*?\*?\s*:\s*([\s\S]*?)(?:Video|Image)\s+Prompt\s*\*?\*?\s*:\s*([\s\S]*?)(?=(?:\*\*|\b)Scene\s+\d+|$)/gi;
@@ -754,6 +933,17 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
 
         // Sequential Media Generation loop with retry capabilities
         for (const scene of scenes) {
+            // Asset cache validation - Skip generating if valid asset file already exists
+            const expectedExt = assetType === 'video' ? 'mp4' : 'jpeg';
+            const sceneMediaPath = path.join(outputDir, `scene_${scene.number}_asset.${expectedExt}`);
+            if (fs.existsSync(sceneMediaPath)) {
+                const stats = fs.statSync(sceneMediaPath);
+                if (stats.size > 10240) { // 10KB
+                    console.log(`[SCENE ${scene.number}/${scenes.length}] Found cached valid asset (size: ${stats.size} bytes). Skipping generation...`);
+                    continue;
+                }
+            }
+
             statusText = `Generating ${assetType} for Scene ${scene.number}/${scenes.length}...`;
             console.log(`\n========================================`);
             console.log(`[SCENE ${scene.number}/${scenes.length}]`);
@@ -772,9 +962,8 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                 }
             }
 
-            // Get the baseline message ID and time before the first attempt for this scene
-            const currentMessages = await chat.fetchMessages({ limit: 5 });
-            const lastMsgIdBeforeMedia = currentMessages.length > 0 ? currentMessages[currentMessages.length - 1].id.id : null;
+            // Get the baseline message count and time before the first attempt for this scene
+            const initialMsgCount = await getMessageCount(page);
             const mediaStartTime = Math.floor(Date.now() / 1000);
 
             for (let attempt = 1; attempt <= 3; attempt++) {
@@ -787,27 +976,15 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
 
                 console.log(`Prompt sent! Waiting for Meta AI response...`);
 
-                // Media validator function to filter out text placeholders
+                // Media validator function to filter out text placeholders and wait until media is actually loaded/rendered
                 const mediaValidator = (msg, text) => {
                     if (text && isGenerationFailed(text)) return true;
-
-                    const rawData = msg.rawData || msg._data || {};
-                    let hasDirectUrl = false;
-                    if (rawData.unifiedResponse) {
-                        try {
-                            const ur = typeof rawData.unifiedResponse === 'string' ? JSON.parse(rawData.unifiedResponse) : rawData.unifiedResponse;
-                            if (ur.sections?.[0]?.view_model?.primitive?.media?.url) {
-                                hasDirectUrl = true;
-                            }
-                        } catch (e) { }
-                    }
-                    const readyKeyword = assetType === 'video' ? 'your video is ready' : 'your image is ready';
-                    return msg.hasMedia || hasDirectUrl || (text && text.toLowerCase().includes(readyKeyword));
+                    return msg.hasMedia;
                 };
 
-                const replyMsg = await pollNewMessage(chat, lastMsgIdBeforeMedia, mediaStartTime, mediaValidator, 60000);
+                const replyMsg = await pollNewMessage(page, initialMsgCount, mediaStartTime, mediaValidator, 90000);
                 if (replyMsg) {
-                    const text = getMessageText(replyMsg);
+                    const text = replyMsg.text || '';
 
                     // Check if generation is blocked or failed
                     if (isGenerationFailed(text)) {
@@ -824,90 +1001,76 @@ FINAL CHECK before output (mandatory — recount every scene): Go through all ${
                         break;
                     }
 
-                    // Poll for up to 20 seconds to wait for media download to settle
-                    let downloadSuccess = false;
-                    console.log('Waiting for media payload to settle/download...');
-                    for (let waitIdx = 0; waitIdx < 10; waitIdx++) {
-                        const messages = await chat.fetchMessages({ limit: 5 });
-                        const refreshedMsg = messages.find(m => m.id.id === replyMsg.id.id);
-                        if (refreshedMsg) {
-                            let mediaUrl = null;
-                            let mimeType = assetType === 'video' ? 'video/mp4' : 'image/jpeg';
-                            const rawData = refreshedMsg.rawData || refreshedMsg._data || {};
-                            if (rawData.unifiedResponse) {
-                                try {
-                                    const ur = typeof rawData.unifiedResponse === 'string' ? JSON.parse(rawData.unifiedResponse) : rawData.unifiedResponse;
-                                    const media = ur.sections?.[0]?.view_model?.primitive?.media;
-                                    if (media && media.url) {
-                                        mediaUrl = media.url;
-                                        mimeType = media.mime_type || media.mimetype || (assetType === 'video' ? 'video/mp4' : 'image/jpeg');
-                                    }
-                                } catch (e) { }
-                            }
+                    // Retrieve media via DOM
+                    console.log('Retrieving media from the message...');
+                    const refreshedMsg = replyMsg;
+                    if (refreshedMsg) {
+                        let mediaUrl = null;
+                        let mimeType = assetType === 'video' ? 'video/mp4' : 'image/jpeg';
+                        const rawData = refreshedMsg.rawData || refreshedMsg._data || {};
+                        if (rawData.unifiedResponse) {
+                            try {
+                                const ur = typeof rawData.unifiedResponse === 'string' ? JSON.parse(rawData.unifiedResponse) : rawData.unifiedResponse;
+                                const media = ur.sections?.[0]?.view_model?.primitive?.media;
+                                if (media && media.url) {
+                                    mediaUrl = media.url;
+                                    mimeType = media.mime_type || media.mimetype || (assetType === 'video' ? 'video/mp4' : 'image/jpeg');
+                                }
+                            } catch (e) { }
+                        }
 
-                            if (mediaUrl || refreshedMsg.hasMedia) {
-                                const ext = mimeType.split('/')[1] || (assetType === 'video' ? 'mp4' : 'jpeg');
-                                const sceneMediaPath = path.join(outputDir, `scene_${scene.number}_asset.${ext}`);
+                        if (mediaUrl) {
+                            const ext = mimeType.split('/')[1] || (assetType === 'video' ? 'mp4' : 'jpeg');
+                            const sceneMediaPath = path.join(outputDir, `scene_${scene.number}_asset.${ext}`);
 
-                                try {
-                                    if (mediaUrl) {
-                                        try {
-                                            await downloadUrl(mediaUrl, sceneMediaPath);
-                                            downloadSuccess = true;
-                                            console.log(`SUCCESS: Asset saved via direct URL download to: ${sceneMediaPath}`);
-                                        } catch (dlErr) {
-                                            console.warn(`WARNING: Direct URL download failed (${dlErr.message || dlErr}). Trying fallback downloadMedia()...`);
-                                        }
-                                    }
-
-                                    if (!downloadSuccess) {
-                                        const mediaData = await refreshedMsg.downloadMedia();
-                                        if (mediaData && mediaData.data) {
-                                            mimeType = mediaData.mimetype || mimeType; // Update mimeType from mediaData
-                                            fs.writeFileSync(sceneMediaPath, Buffer.from(mediaData.data, 'base64'));
-                                            downloadSuccess = true;
-                                            console.log(`SUCCESS: Asset saved via downloadMedia() to: ${sceneMediaPath}`);
-                                        } else {
-                                            console.warn(`WARNING: downloadMedia() returned empty data for Scene ${scene.number}.`);
-                                        }
-                                    }
-
-                                    // Verify that the media is of expected type (image vs video)
-                                    if (downloadSuccess) {
-                                        const expectedTypePrefix = assetType === 'video' ? 'video/' : 'image/';
-                                        if (mimeType.toLowerCase().startsWith(expectedTypePrefix)) {
-                                            // Verify file exists and is larger than 10KB
-                                            if (fs.existsSync(sceneMediaPath)) {
-                                                const stats = fs.statSync(sceneMediaPath);
-                                                if (stats.size > 10240) { // 10KB
-                                                    console.log(`SUCCESS: Asset verified (mime: ${mimeType}, size: ${stats.size} bytes)`);
-                                                } else {
-                                                    console.warn(`WARNING: Downloaded asset file is too small (${stats.size} bytes). Rejecting and retrying...`);
-                                                    downloadSuccess = false;
-                                                    try { fs.unlinkSync(sceneMediaPath); } catch (e) { }
-                                                }
+                            try {
+                                let downloadSuccess = false;
+                                if (mediaUrl.startsWith('blob:')) {
+                                    const blobData = await page.evaluate(async (url) => {
+                                        const response = await fetch(url);
+                                        const blob = await response.blob();
+                                        return new Promise((resolve) => {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                            reader.readAsDataURL(blob);
+                                        });
+                                    }, mediaUrl);
+                                    fs.writeFileSync(sceneMediaPath, Buffer.from(blobData, 'base64'));
+                                    downloadSuccess = true;
+                                } else {
+                                    await downloadUrl(mediaUrl, sceneMediaPath);
+                                    downloadSuccess = true;
+                                }
+                                
+                                // Verify that the media is of expected type (image vs video)
+                                if (downloadSuccess) {
+                                    const expectedTypePrefix = assetType === 'video' ? 'video/' : 'image/';
+                                    if (mimeType.toLowerCase().startsWith(expectedTypePrefix)) {
+                                        // Verify file exists and is larger than 10KB
+                                        if (fs.existsSync(sceneMediaPath)) {
+                                            const stats = fs.statSync(sceneMediaPath);
+                                            if (stats.size > 10240) { // 10KB
+                                                console.log(`SUCCESS: Asset verified (mime: ${mimeType}, size: ${stats.size} bytes)`);
+                                                mediaSaved = true;
                                             } else {
-                                                console.warn(`WARNING: Asset file not found after download.`);
-                                                downloadSuccess = false;
+                                                console.warn(`WARNING: Downloaded asset file is too small (${stats.size} bytes). Rejecting and retrying...`);
+                                                try { fs.unlinkSync(sceneMediaPath); } catch (e) { }
                                             }
                                         } else {
-                                            console.warn(`WARNING: Media is not of expected type ${expectedTypePrefix} (mime_type: ${mimeType}). Rejecting and retrying...`);
-                                            downloadSuccess = false;
-                                            try { fs.unlinkSync(sceneMediaPath); } catch (e) { }
+                                            console.warn(`WARNING: Asset file not found after download.`);
                                         }
+                                    } else {
+                                        console.warn(`WARNING: Media is not of expected type ${expectedTypePrefix} (mime_type: ${mimeType}). Rejecting and retrying...`);
+                                        try { fs.unlinkSync(sceneMediaPath); } catch (e) { }
                                     }
-                                } catch (mediaErr) {
-                                    console.warn(`WARNING: Media download failed for Scene ${scene.number}:`, mediaErr.message || mediaErr);
-                                    downloadSuccess = false;
                                 }
-                                break;
+                            } catch (mediaErr) {
+                                console.warn(`WARNING: Media download failed for Scene ${scene.number}:`, mediaErr.message || mediaErr);
                             }
                         }
-                        await new Promise(r => setTimeout(r, 2000));
                     }
 
-                    if (downloadSuccess) {
-                        mediaSaved = true;
+                    if (mediaSaved) {
                         break; // Exit attempt loop on success
                     }
                 }
@@ -1217,6 +1380,19 @@ const server = http.createServer(async (req, res) => {
 });
 
 const port = process.env.PORT || 3000;
+
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n[FATAL ERROR] Port ${port} is already in use by another process.`);
+        console.error(`This usually means another instance of this script is already running.`);
+        console.error(`Please close any other running instances or run the script on a different port using the PORT environment variable:`);
+        console.error(`Example: PORT=3001 node index.js\n`);
+        process.exit(1);
+    } else {
+        console.error('HTTP Server Error:', err);
+    }
+});
+
 server.listen(port, '0.0.0.0', () => {
     console.log(`HTTP Dashboard server listening on port ${port}`);
 });

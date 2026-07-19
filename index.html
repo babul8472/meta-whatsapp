@@ -509,7 +509,7 @@
     <header>
         <div class="logo-container">
             <div class="logo-icon">M</div>
-            <h1>Meta AI Video Asset Dashboard</h1>
+            <h1>BABUL AI Video Asset Dashboard</h1>
         </div>
         <div class="status-badge">
             <div class="status-dot" id="global-status-dot"></div>
@@ -524,37 +524,48 @@
             <section class="card" id="whatsapp-conn-card">
                 <div class="card-title">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                        <path
+                            d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
                     </svg>
                     WhatsApp Web Connection
                 </div>
-                
+
                 <div id="wa-status-container" style="text-align: center; padding: 1.5rem 0;">
                     <!-- State: Connecting -->
                     <div id="wa-state-connecting">
                         <div class="spinner" style="margin: 0 auto 1rem auto; width: 36px; height: 36px;"></div>
                         <p style="color: var(--text-dim); margin: 0;">Connecting to WhatsApp Web browser...</p>
                     </div>
-                    
+
                     <!-- State: QR Scanner -->
                     <div id="wa-state-qr" style="display: none;">
-                        <p style="color: var(--text-main); font-weight: 500; margin-bottom: 1rem;">Please scan this QR code with WhatsApp on your phone:</p>
-                        <div style="background: white; padding: 12px; display: inline-block; border-radius: 12px; margin-bottom: 1rem; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-                            <img id="wa-qr-img" src="" alt="WhatsApp QR Code" style="width: 250px; height: 250px; display: block;">
+                        <p style="color: var(--text-main); font-weight: 500; margin-bottom: 1rem;">Please scan this QR
+                            code with WhatsApp on your phone:</p>
+                        <div
+                            style="background: white; padding: 12px; display: inline-block; border-radius: 12px; margin-bottom: 1rem; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
+                            <img id="wa-qr-img" src="" alt="WhatsApp QR Code"
+                                style="width: 250px; height: 250px; display: block;">
                         </div>
-                        <p style="color: var(--text-dim); font-size: 0.85rem; margin: 0;">Open WhatsApp → Settings → Linked Devices → Link a Device</p>
+                        <p style="color: var(--text-dim); font-size: 0.85rem; margin: 0;">Open WhatsApp → Settings →
+                            Linked Devices → Link a Device</p>
                     </div>
-                    
+
                     <!-- State: Connected -->
                     <div id="wa-state-connected" style="display: none;">
-                        <div style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); padding: 0.5rem 1rem; border-radius: 50px; font-weight: 600; margin-bottom: 1.5rem; box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);">
+                        <div
+                            style="display: inline-flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); padding: 0.5rem 1rem; border-radius: 50px; font-weight: 600; margin-bottom: 1.5rem; box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);">
                             <span class="status-dot active" style="background: var(--success);"></span>
                             WhatsApp Connected & Active
                         </div>
-                        <p style="color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem;">Your session is active. You can generate videos now.</p>
-                        <button id="btn-wa-logout" class="btn-submit" style="background: linear-gradient(135deg, #ef4444, #b91c1c); max-width: 200px; margin: 0 auto; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.25rem;">
-                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+                        <p style="color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.9rem;">Your session is
+                            active. You can generate videos now.</p>
+                        <button id="btn-wa-logout" class="btn-submit"
+                            style="background: linear-gradient(135deg, #ef4444, #b91c1c); max-width: 200px; margin: 0 auto; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2" style="margin-right: 0.25rem;">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                <polyline points="16 17 21 12 16 7" />
+                                <line x1="21" y1="12" x2="9" y2="12" />
                             </svg>
                             Log Out / Disconnect
                         </button>
@@ -777,7 +788,7 @@
             try {
                 const res = await fetch('/api/whatsapp/status');
                 const data = await res.json();
-                
+
                 if (data.isReady) {
                     waConnecting.style.display = 'none';
                     waQr.style.display = 'none';
@@ -792,19 +803,19 @@
                     waQr.style.display = 'none';
                     waConnected.style.display = 'none';
                 }
-            } catch(e) {}
+            } catch (e) { }
         }
 
         btnWaLogout.addEventListener('click', async () => {
             if (!confirm('Are you sure you want to disconnect WhatsApp and log out?')) return;
-            
+
             btnWaLogout.setAttribute('disabled', 'true');
             btnWaLogout.textContent = 'Logging out...';
-            
+
             try {
                 await fetch('/api/whatsapp/logout', { method: 'POST' });
-            } catch(e) {}
-            
+            } catch (e) { }
+
             setTimeout(() => {
                 btnWaLogout.removeAttribute('disabled');
                 btnWaLogout.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 0.25rem;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> Log Out / Disconnect`;
